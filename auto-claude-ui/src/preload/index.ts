@@ -55,7 +55,9 @@ import type {
   InsightsSession,
   InsightsChatStatus,
   InsightsStreamChunk,
-  TaskMetadata
+  TaskMetadata,
+  TaskLogs,
+  TaskLogStreamChunk
 } from '../shared/types';
 
 // Expose a secure API to the renderer process
@@ -248,7 +250,7 @@ const electronAPI: ElectronAPI = {
   // Task Phase Logs (collapsible by phase)
   // ============================================
 
-  getTaskLogs: (projectId: string, specId: string): Promise<IPCResult<import('../shared/types').TaskLogs | null>> =>
+  getTaskLogs: (projectId: string, specId: string): Promise<IPCResult<TaskLogs | null>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_LOGS_GET, projectId, specId),
 
   watchTaskLogs: (projectId: string, specId: string): Promise<IPCResult> =>
@@ -258,12 +260,12 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.TASK_LOGS_UNWATCH, specId),
 
   onTaskLogsChanged: (
-    callback: (specId: string, logs: import('../shared/types').TaskLogs) => void
+    callback: (specId: string, logs: TaskLogs) => void
   ): (() => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       specId: string,
-      logs: import('../shared/types').TaskLogs
+      logs: TaskLogs
     ): void => {
       callback(specId, logs);
     };
@@ -274,12 +276,12 @@ const electronAPI: ElectronAPI = {
   },
 
   onTaskLogsStream: (
-    callback: (specId: string, chunk: import('../shared/types').TaskLogStreamChunk) => void
+    callback: (specId: string, chunk: TaskLogStreamChunk) => void
   ): (() => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       specId: string,
-      chunk: import('../shared/types').TaskLogStreamChunk
+      chunk: TaskLogStreamChunk
     ): void => {
       callback(specId, chunk);
     };

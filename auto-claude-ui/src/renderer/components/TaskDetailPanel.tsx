@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   Play,
@@ -30,7 +30,14 @@ import {
   Minus,
   ExternalLink,
   Zap,
-  Info
+  Info,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Search,
+  FolderSearch,
+  Pencil,
+  FlaskConical
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -40,6 +47,7 @@ import { Separator } from './ui/separator';
 import { Textarea } from './ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from './ui/tooltip';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,6 +59,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { cn, calculateProgress, formatRelativeTime } from '../lib/utils';
+import { useProjectStore } from '../stores/project-store';
 import {
   TASK_STATUS_LABELS,
   TASK_CATEGORY_LABELS,
@@ -67,7 +76,7 @@ import {
   EXECUTION_PHASE_COLORS
 } from '../../shared/constants';
 import { startTask, stopTask, submitReview, checkTaskRunning, recoverStuckTask, deleteTask } from '../stores/task-store';
-import type { Task, TaskCategory, ExecutionPhase, WorktreeStatus, WorktreeDiff, ReviewReason } from '../../shared/types';
+import type { Task, TaskCategory, ExecutionPhase, WorktreeStatus, WorktreeDiff, ReviewReason, TaskLogs, TaskLogPhase, TaskPhaseLog, TaskLogEntry } from '../../shared/types';
 
 // Category icon mapping
 const CategoryIcon: Record<TaskCategory, typeof Target> = {
@@ -107,9 +116,14 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showDiffDialog, setShowDiffDialog] = useState(false);
+  // Phase logs state
+  const [phaseLogs, setPhaseLogs] = useState<TaskLogs | null>(null);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [expandedPhases, setExpandedPhases] = useState<Set<TaskLogPhase>>(new Set());
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
+  const selectedProject = useProjectStore((state) => state.getSelectedProject());
   const progress = calculateProgress(task.chunks);
   const isRunning = task.status === 'in_progress';
   const needsReview = task.status === 'human_review';
@@ -176,6 +190,73 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
       setWorktreeDiff(null);
     }
   }, [task.id, needsReview]);
+
+  // Load and watch phase logs
+  useEffect(() => {
+    if (!selectedProject) return;
+
+    const loadLogs = async () => {
+      setIsLoadingLogs(true);
+      try {
+        const result = await window.electronAPI.getTaskLogs(selectedProject.id, task.specId);
+        if (result.success && result.data) {
+          setPhaseLogs(result.data);
+          // Auto-expand active phase
+          const activePhase = (['planning', 'coding', 'validation'] as TaskLogPhase[]).find(
+            phase => result.data?.phases[phase]?.status === 'active'
+          );
+          if (activePhase) {
+            setExpandedPhases(new Set([activePhase]));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load task logs:', err);
+      } finally {
+        setIsLoadingLogs(false);
+      }
+    };
+
+    loadLogs();
+
+    // Start watching for log changes
+    window.electronAPI.watchTaskLogs(selectedProject.id, task.specId);
+
+    // Listen for log changes
+    const unsubscribe = window.electronAPI.onTaskLogsChanged((specId, logs) => {
+      if (specId === task.specId) {
+        setPhaseLogs(logs);
+        // Auto-expand newly active phase
+        const activePhase = (['planning', 'coding', 'validation'] as TaskLogPhase[]).find(
+          phase => logs.phases[phase]?.status === 'active'
+        );
+        if (activePhase) {
+          setExpandedPhases(prev => {
+            const next = new Set(prev);
+            next.add(activePhase);
+            return next;
+          });
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      window.electronAPI.unwatchTaskLogs(task.specId);
+    };
+  }, [selectedProject, task.specId]);
+
+  // Toggle phase expansion
+  const togglePhase = useCallback((phase: TaskLogPhase) => {
+    setExpandedPhases(prev => {
+      const next = new Set(prev);
+      if (next.has(phase)) {
+        next.delete(phase);
+      } else {
+        next.add(phase);
+      }
+      return next;
+    });
+  }, []);
 
   const handleStartStop = () => {
     if (isRunning && !isStuck) {
@@ -481,10 +562,7 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
                       title="AI Review (80-95%)"
                     />
                     <div
-                      className={cn(
-                        'transition-all duration-300',
-                        executionPhase === 'complete' ? 'bg-success' : 'bg-success/30'
-                      )}
+                      className="transition-all duration-300 bg-success/30"
                       style={{ width: '5%' }}
                       title="Complete (95-100%)"
                     />
@@ -763,8 +841,7 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
                               // Open folder in system file manager
                               window.electronAPI.createTerminal({
                                 id: `open-${task.id}`,
-                                cwd: worktreeStatus.worktreePath!,
-                                name: 'Open Folder'
+                                cwd: worktreeStatus.worktreePath!
                               });
                             }}
                             className="flex-none"
@@ -959,8 +1036,27 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
             className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
             onScroll={handleLogsScroll}
           >
-            <div className="p-4">
-              {task.logs && task.logs.length > 0 ? (
+            <div className="p-4 space-y-2">
+              {isLoadingLogs ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : phaseLogs ? (
+                <>
+                  {/* Phase-based collapsible logs */}
+                  {(['planning', 'coding', 'validation'] as TaskLogPhase[]).map((phase) => (
+                    <PhaseLogSection
+                      key={phase}
+                      phase={phase}
+                      phaseLog={phaseLogs.phases[phase]}
+                      isExpanded={expandedPhases.has(phase)}
+                      onToggle={() => togglePhase(phase)}
+                    />
+                  ))}
+                  <div ref={logsEndRef} />
+                </>
+              ) : task.logs && task.logs.length > 0 ? (
+                // Fallback to legacy raw logs if no phase logs exist
                 <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">
                   {task.logs.join('')}
                   <div ref={logsEndRef} />
@@ -1210,5 +1306,212 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
       </AlertDialog>
       </div>
     </TooltipProvider>
+  );
+}
+
+// Phase Log Section Component
+interface PhaseLogSectionProps {
+  phase: TaskLogPhase;
+  phaseLog: TaskPhaseLog | null;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+const PHASE_LABELS: Record<TaskLogPhase, string> = {
+  planning: 'Planning',
+  coding: 'Coding',
+  validation: 'Validation'
+};
+
+const PHASE_ICONS: Record<TaskLogPhase, typeof Pencil> = {
+  planning: Pencil,
+  coding: FileCode,
+  validation: FlaskConical
+};
+
+const PHASE_COLORS: Record<TaskLogPhase, string> = {
+  planning: 'text-amber-500 bg-amber-500/10 border-amber-500/30',
+  coding: 'text-info bg-info/10 border-info/30',
+  validation: 'text-purple-500 bg-purple-500/10 border-purple-500/30'
+};
+
+function PhaseLogSection({ phase, phaseLog, isExpanded, onToggle }: PhaseLogSectionProps) {
+  const Icon = PHASE_ICONS[phase];
+  const status = phaseLog?.status || 'pending';
+  const hasEntries = (phaseLog?.entries.length || 0) > 0;
+
+  const getStatusBadge = () => {
+    switch (status) {
+      case 'active':
+        return (
+          <Badge variant="outline" className="text-xs bg-info/10 text-info border-info/30 flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Running
+          </Badge>
+        );
+      case 'completed':
+        return (
+          <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30 flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" />
+            Complete
+          </Badge>
+        );
+      case 'failed':
+        return (
+          <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30 flex items-center gap-1">
+            <XCircle className="h-3 w-3" />
+            Failed
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="secondary" className="text-xs text-muted-foreground">
+            Pending
+          </Badge>
+        );
+    }
+  };
+
+  return (
+    <Collapsible open={isExpanded} onOpenChange={onToggle}>
+      <CollapsibleTrigger asChild>
+        <button
+          className={cn(
+            'w-full flex items-center justify-between p-3 rounded-lg border transition-colors',
+            'hover:bg-secondary/50',
+            status === 'active' && PHASE_COLORS[phase],
+            status === 'completed' && 'border-success/30 bg-success/5',
+            status === 'failed' && 'border-destructive/30 bg-destructive/5',
+            status === 'pending' && 'border-border bg-secondary/30'
+          )}
+        >
+          <div className="flex items-center gap-2">
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+            <Icon className={cn('h-4 w-4', status === 'active' ? PHASE_COLORS[phase].split(' ')[0] : 'text-muted-foreground')} />
+            <span className="font-medium text-sm">{PHASE_LABELS[phase]}</span>
+            {hasEntries && (
+              <span className="text-xs text-muted-foreground">
+                ({phaseLog?.entries.length} entries)
+              </span>
+            )}
+          </div>
+          {getStatusBadge()}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1 ml-6 border-l-2 border-border pl-4 py-2 space-y-1">
+          {!hasEntries ? (
+            <p className="text-xs text-muted-foreground italic">No logs yet</p>
+          ) : (
+            phaseLog?.entries.map((entry, idx) => (
+              <LogEntry key={`${entry.timestamp}-${idx}`} entry={entry} />
+            ))
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// Log Entry Component
+interface LogEntryProps {
+  entry: TaskLogEntry;
+}
+
+function LogEntry({ entry }: LogEntryProps) {
+  const getToolInfo = (toolName: string) => {
+    switch (toolName) {
+      case 'Read':
+        return { icon: FileText, label: 'Reading', color: 'text-blue-500 bg-blue-500/10' };
+      case 'Glob':
+        return { icon: FolderSearch, label: 'Searching files', color: 'text-amber-500 bg-amber-500/10' };
+      case 'Grep':
+        return { icon: Search, label: 'Searching code', color: 'text-green-500 bg-green-500/10' };
+      case 'Edit':
+        return { icon: Pencil, label: 'Editing', color: 'text-purple-500 bg-purple-500/10' };
+      case 'Write':
+        return { icon: FileCode, label: 'Writing', color: 'text-cyan-500 bg-cyan-500/10' };
+      case 'Bash':
+        return { icon: Terminal, label: 'Running', color: 'text-orange-500 bg-orange-500/10' };
+      default:
+        return { icon: Wrench, label: toolName, color: 'text-muted-foreground bg-muted' };
+    }
+  };
+
+  // Format timestamp for display
+  const formatTime = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
+
+  if (entry.type === 'tool_start' && entry.tool_name) {
+    const { icon: Icon, label, color } = getToolInfo(entry.tool_name);
+    return (
+      <div className={cn('inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs', color)}>
+        <Icon className="h-3 w-3 animate-pulse" />
+        <span className="font-medium">{label}</span>
+        {entry.tool_input && (
+          <span className="text-muted-foreground truncate max-w-[200px]" title={entry.tool_input}>
+            {entry.tool_input}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (entry.type === 'tool_end' && entry.tool_name) {
+    const { icon: Icon, color } = getToolInfo(entry.tool_name);
+    return (
+      <div className={cn('inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs', color, 'opacity-60')}>
+        <Icon className="h-3 w-3" />
+        <CheckCircle2 className="h-3 w-3 text-success" />
+        <span className="text-muted-foreground">Done</span>
+      </div>
+    );
+  }
+
+  if (entry.type === 'error') {
+    return (
+      <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 rounded-md px-2 py-1">
+        <XCircle className="h-3 w-3 mt-0.5 shrink-0" />
+        <span className="break-words">{entry.content}</span>
+      </div>
+    );
+  }
+
+  if (entry.type === 'success') {
+    return (
+      <div className="flex items-start gap-2 text-xs text-success bg-success/10 rounded-md px-2 py-1">
+        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
+        <span className="break-words">{entry.content}</span>
+      </div>
+    );
+  }
+
+  if (entry.type === 'info') {
+    return (
+      <div className="flex items-start gap-2 text-xs text-info bg-info/10 rounded-md px-2 py-1">
+        <Info className="h-3 w-3 mt-0.5 shrink-0" />
+        <span className="break-words">{entry.content}</span>
+      </div>
+    );
+  }
+
+  // Default text entry
+  return (
+    <div className="flex items-start gap-2 text-xs text-muted-foreground py-0.5">
+      <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
+        {formatTime(entry.timestamp)}
+      </span>
+      <span className="break-words whitespace-pre-wrap">{entry.content}</span>
+    </div>
   );
 }

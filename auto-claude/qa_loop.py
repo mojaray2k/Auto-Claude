@@ -210,13 +210,9 @@ async def run_qa_agent_session(
                     if block_type == "TextBlock" and hasattr(block, "text"):
                         response_text += block.text
                         print(block.text, end="", flush=True)
-                        # Emit streaming marker
+                        # Log text to task logger (persist without double-printing)
                         if task_logger and block.text.strip():
-                            task_logger._emit("TEXT", {
-                                "content": block.text,
-                                "phase": LogPhase.VALIDATION.value,
-                                "timestamp": task_logger._timestamp()
-                            })
+                            task_logger.log(block.text, LogEntryType.TEXT, LogPhase.VALIDATION, print_to_console=False)
                     elif block_type == "ToolUseBlock" and hasattr(block, "name"):
                         tool_name = block.name
                         tool_input = None
@@ -233,17 +229,18 @@ async def run_qa_agent_session(
                                 elif "pattern" in inp:
                                     tool_input = f"pattern: {inp['pattern']}"
 
-                        print(f"\n[QA Tool: {tool_name}]", flush=True)
+                        # Log tool start (handles printing)
+                        if task_logger:
+                            task_logger.tool_start(tool_name, tool_input, LogPhase.VALIDATION, print_to_console=True)
+                        else:
+                            print(f"\n[QA Tool: {tool_name}]", flush=True)
+
                         if verbose and hasattr(block, "input"):
                             input_str = str(block.input)
                             if len(input_str) > 300:
                                 print(f"   Input: {input_str[:300]}...", flush=True)
                             else:
                                 print(f"   Input: {input_str}", flush=True)
-
-                        # Log tool start
-                        if task_logger:
-                            task_logger.tool_start(tool_name, tool_input, LogPhase.VALIDATION)
                         current_tool = tool_name
 
             elif msg_type == "UserMessage" and hasattr(msg, "content"):
@@ -347,13 +344,9 @@ async def run_qa_fixer_session(
                     if block_type == "TextBlock" and hasattr(block, "text"):
                         response_text += block.text
                         print(block.text, end="", flush=True)
-                        # Emit streaming marker
+                        # Log text to task logger (persist without double-printing)
                         if task_logger and block.text.strip():
-                            task_logger._emit("TEXT", {
-                                "content": block.text,
-                                "phase": LogPhase.VALIDATION.value,
-                                "timestamp": task_logger._timestamp()
-                            })
+                            task_logger.log(block.text, LogEntryType.TEXT, LogPhase.VALIDATION, print_to_console=False)
                     elif block_type == "ToolUseBlock" and hasattr(block, "name"):
                         tool_name = block.name
                         tool_input = None
@@ -372,17 +365,18 @@ async def run_qa_fixer_session(
                                         cmd = cmd[:47] + "..."
                                     tool_input = cmd
 
-                        print(f"\n[Fixer Tool: {tool_name}]", flush=True)
+                        # Log tool start (handles printing)
+                        if task_logger:
+                            task_logger.tool_start(tool_name, tool_input, LogPhase.VALIDATION, print_to_console=True)
+                        else:
+                            print(f"\n[Fixer Tool: {tool_name}]", flush=True)
+
                         if verbose and hasattr(block, "input"):
                             input_str = str(block.input)
                             if len(input_str) > 300:
                                 print(f"   Input: {input_str[:300]}...", flush=True)
                             else:
                                 print(f"   Input: {input_str}", flush=True)
-
-                        # Log tool start
-                        if task_logger:
-                            task_logger.tool_start(tool_name, tool_input, LogPhase.VALIDATION)
                         current_tool = tool_name
 
             elif msg_type == "UserMessage" and hasattr(msg, "content"):

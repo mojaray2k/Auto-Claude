@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow, app } from 'electron';
 import path from 'path';
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { IPC_CHANNELS, DEFAULT_APP_SETTINGS, AUTO_BUILD_PATHS, getSpecsDir } from '../shared/constants';
 import type {
   Project,
@@ -1262,8 +1262,6 @@ export function setupIpcHandlers(
         }
 
         // Get branch info from git
-        const { execSync } = require('child_process');
-
         try {
           // Get current branch in worktree
           const branch = execSync('git rev-parse --abbrev-ref HEAD', {
@@ -1367,8 +1365,6 @@ export function setupIpcHandlers(
           return { success: false, error: 'No worktree found for this task' };
         }
 
-        const { execSync } = require('child_process');
-
         // Get base branch
         let baseBranch = 'main';
         try {
@@ -1398,7 +1394,7 @@ export function setupIpcHandlers(
 
           // Parse name-status to get file statuses
           const statusMap: Record<string, 'added' | 'modified' | 'deleted' | 'renamed'> = {};
-          nameStatus.split('\n').filter(Boolean).forEach(line => {
+          nameStatus.split('\n').filter(Boolean).forEach((line: string) => {
             const [status, ...pathParts] = line.split('\t');
             const filePath = pathParts.join('\t'); // Handle files with tabs in name
             switch (status[0]) {
@@ -1411,7 +1407,7 @@ export function setupIpcHandlers(
           });
 
           // Parse numstat for additions/deletions
-          numstat.split('\n').filter(Boolean).forEach(line => {
+          numstat.split('\n').filter(Boolean).forEach((line: string) => {
             const [adds, dels, filePath] = line.split('\t');
             files.push({
               path: filePath,
@@ -1495,9 +1491,6 @@ export function setupIpcHandlers(
 
           mergeProcess.on('close', (code: number) => {
             if (code === 0) {
-              // Update task status to done after successful merge
-              projectStore.updateTaskStatus(taskId, 'done');
-
               const mainWindow = getMainWindow();
               if (mainWindow) {
                 mainWindow.webContents.send(IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'done');
@@ -1568,8 +1561,6 @@ export function setupIpcHandlers(
           };
         }
 
-        const { execSync } = require('child_process');
-
         try {
           // Get the branch name before removing
           const branch = execSync('git rev-parse --abbrev-ref HEAD', {
@@ -1592,9 +1583,6 @@ export function setupIpcHandlers(
           } catch {
             // Branch might already be deleted or not exist
           }
-
-          // Update task status back to backlog
-          projectStore.updateTaskStatus(taskId, 'backlog');
 
           const mainWindow = getMainWindow();
           if (mainWindow) {
@@ -1645,14 +1633,11 @@ export function setupIpcHandlers(
           return { success: true, data: { worktrees } };
         }
 
-        const { execSync, readdirSync, statSync } = require('child_process');
-        const fs = require('fs');
-
         // Get all directories in .worktrees
-        const entries = fs.readdirSync(worktreesDir);
+        const entries = readdirSync(worktreesDir);
         for (const entry of entries) {
           const entryPath = path.join(worktreesDir, entry);
-          const stat = fs.statSync(entryPath);
+          const stat = statSync(entryPath);
 
           // Skip worker directories and non-directories
           if (!stat.isDirectory() || entry.startsWith('worker-')) {
@@ -1755,8 +1740,9 @@ export function setupIpcHandlers(
           return { success: false, error: 'Project not found' };
         }
 
-        const specsDir = getSpecsDir(project.path, project.settings.devMode);
-        const specDir = path.join(specsDir, specId);
+        // Get specs dir relative to project path
+        const specsRelPath = getSpecsDir(project.autoBuildPath, project.settings.devMode);
+        const specDir = path.join(project.path, specsRelPath, specId);
 
         if (!existsSync(specDir)) {
           return { success: false, error: 'Spec directory not found' };
@@ -1787,8 +1773,9 @@ export function setupIpcHandlers(
           return { success: false, error: 'Project not found' };
         }
 
-        const specsDir = getSpecsDir(project.path, project.settings.devMode);
-        const specDir = path.join(specsDir, specId);
+        // Get specs dir relative to project path
+        const specsRelPath = getSpecsDir(project.autoBuildPath, project.settings.devMode);
+        const specDir = path.join(project.path, specsRelPath, specId);
 
         if (!existsSync(specDir)) {
           return { success: false, error: 'Spec directory not found' };

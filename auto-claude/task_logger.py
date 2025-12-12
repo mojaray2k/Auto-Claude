@@ -278,7 +278,7 @@ class TaskLogger:
 
         self._save()
 
-    def log(self, content: str, entry_type: LogEntryType = LogEntryType.TEXT, phase: Optional[LogPhase] = None):
+    def log(self, content: str, entry_type: LogEntryType = LogEntryType.TEXT, phase: Optional[LogPhase] = None, print_to_console: bool = True):
         """
         Log a message.
 
@@ -286,6 +286,7 @@ class TaskLogger:
             content: The message to log
             entry_type: Type of entry (text, error, success, info)
             phase: Optional phase override (uses current_phase if not specified)
+            print_to_console: Whether to also print to stdout (default True)
         """
         phase_key = (phase or self.current_phase or LogPhase.CODING).value
 
@@ -308,8 +309,9 @@ class TaskLogger:
             "timestamp": self._timestamp()
         })
 
-        # Also print to console
-        print(content, flush=True)
+        # Also print to console (unless caller handles printing)
+        if print_to_console:
+            print(content, flush=True)
 
     def log_error(self, content: str, phase: Optional[LogPhase] = None):
         """Log an error message."""
@@ -323,7 +325,7 @@ class TaskLogger:
         """Log an info message."""
         self.log(content, LogEntryType.INFO, phase)
 
-    def tool_start(self, tool_name: str, tool_input: Optional[str] = None, phase: Optional[LogPhase] = None):
+    def tool_start(self, tool_name: str, tool_input: Optional[str] = None, phase: Optional[LogPhase] = None, print_to_console: bool = True):
         """
         Log the start of a tool execution.
 
@@ -331,6 +333,7 @@ class TaskLogger:
             tool_name: Name of the tool (e.g., "Read", "Write", "Bash")
             tool_input: Brief description of tool input
             phase: Optional phase override
+            print_to_console: Whether to also print to stdout (default True)
         """
         phase_key = (phase or self.current_phase or LogPhase.CODING).value
 
@@ -358,9 +361,10 @@ class TaskLogger:
             "phase": phase_key
         })
 
-        print(f"[Tool: {tool_name}]", flush=True)
+        if print_to_console:
+            print(f"\n[Tool: {tool_name}]", flush=True)
 
-    def tool_end(self, tool_name: str, success: bool = True, result: Optional[str] = None, phase: Optional[LogPhase] = None):
+    def tool_end(self, tool_name: str, success: bool = True, result: Optional[str] = None, phase: Optional[LogPhase] = None, print_to_console: bool = False):
         """
         Log the end of a tool execution.
 
@@ -369,6 +373,7 @@ class TaskLogger:
             success: Whether the tool succeeded
             result: Optional brief result description
             phase: Optional phase override
+            print_to_console: Whether to also print to stdout (default False for tool_end)
         """
         phase_key = (phase or self.current_phase or LogPhase.CODING).value
 

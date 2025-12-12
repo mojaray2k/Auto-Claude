@@ -1341,6 +1341,19 @@ export interface ElectronAPI {
   onInsightsError: (
     callback: (projectId: string, error: string) => void
   ) => () => void;
+
+  // Task logs operations
+  getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
+  watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
+  unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
+
+  // Task logs event listeners
+  onTaskLogsChanged: (
+    callback: (specId: string, logs: TaskLogs) => void
+  ) => () => void;
+  onTaskLogsStream: (
+    callback: (specId: string, chunk: TaskLogStreamChunk) => void
+  ) => () => void;
 }
 
 declare global {

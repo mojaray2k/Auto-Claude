@@ -1,5 +1,5 @@
-# Docker Compose for Auto-Build Framework
-# ========================================
+# Docker Compose for Auto Claude
+# ===============================
 #
 # Services:
 #   - falkordb: Graph database for Graphiti memory integration

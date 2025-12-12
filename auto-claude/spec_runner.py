@@ -88,6 +88,13 @@ from debug import (
     debug_section,
 )
 from graphiti_providers import get_graph_hints, is_graphiti_enabled
+from task_logger import (
+    TaskLogger,
+    LogPhase,
+    LogEntryType,
+    get_task_logger,
+    clear_task_logger,
+)
 
 
 # Configuration
@@ -550,6 +557,10 @@ class SpecOrchestrator:
         # Create client
         client = create_client(self.project_dir, self.spec_dir, self.model)
 
+        # Get task logger for this spec
+        task_logger = get_task_logger(self.spec_dir)
+        current_tool = None
+
         try:
             async with client:
                 await client.query(prompt)
@@ -564,13 +575,55 @@ class SpecOrchestrator:
                             if block_type == "TextBlock" and hasattr(block, "text"):
                                 response_text += block.text
                                 print(block.text, end="", flush=True)
+                                # Log text to task logger
+                                if task_logger and block.text.strip():
+                                    task_logger.log(block.text, LogEntryType.TEXT, LogPhase.PLANNING, print_to_console=False)
                             elif block_type == "ToolUseBlock" and hasattr(block, "name"):
-                                print(f"\n[Tool: {block.name}]", flush=True)
+                                tool_name = block.name
+                                tool_input = None
+
+                                # Extract meaningful tool input for display
+                                if hasattr(block, "input") and block.input:
+                                    inp = block.input
+                                    if isinstance(inp, dict):
+                                        if "pattern" in inp:
+                                            tool_input = f"pattern: {inp['pattern']}"
+                                        elif "file_path" in inp:
+                                            fp = inp["file_path"]
+                                            if len(fp) > 50:
+                                                fp = "..." + fp[-47:]
+                                            tool_input = fp
+                                        elif "command" in inp:
+                                            cmd = inp["command"]
+                                            if len(cmd) > 50:
+                                                cmd = cmd[:47] + "..."
+                                            tool_input = cmd
+                                        elif "path" in inp:
+                                            tool_input = inp["path"]
+
+                                # Log tool start
+                                if task_logger:
+                                    task_logger.tool_start(tool_name, tool_input, LogPhase.PLANNING, print_to_console=True)
+                                else:
+                                    print(f"\n[Tool: {tool_name}]", flush=True)
+                                current_tool = tool_name
+
+                    # Handle tool results
+                    elif msg_type == "UserMessage" and hasattr(msg, "content"):
+                        for block in msg.content:
+                            block_type = type(block).__name__
+                            if block_type == "ToolResultBlock":
+                                is_error = getattr(block, "is_error", False)
+                                if task_logger and current_tool:
+                                    task_logger.tool_end(current_tool, success=not is_error, phase=LogPhase.PLANNING)
+                                current_tool = None
 
                 print()
                 return True, response_text
 
         except Exception as e:
+            if task_logger:
+                task_logger.log_error(f"Agent error: {e}", LogPhase.PLANNING)
             return False, str(e)
 
     # === Phase Implementations ===
@@ -1575,6 +1628,10 @@ Read the failed files, understand the errors, and fix them.
               interactive=interactive,
               model=self.model)
 
+        # Initialize task logger for planning phase
+        task_logger = get_task_logger(self.spec_dir)
+        task_logger.start_phase(LogPhase.PLANNING, "Starting spec creation process")
+
         print(box(
             f"Spec Directory: {self.spec_dir}\n"
             f"Project: {self.project_dir}" +
@@ -1607,6 +1664,8 @@ Read the failed files, understand the errors, and fix them.
             phase_num += 1
             display_name, display_icon = phase_display.get(name, (name.upper(), Icons.GEAR))
             print_section(f"PHASE {phase_num}: {display_name}", display_icon)
+            # Log phase start to task logger
+            task_logger.log(f"Starting phase {phase_num}: {display_name}", LogEntryType.INFO)
             return phase_fn()
 
         # === PHASE 1: DISCOVERY ===
@@ -1614,6 +1673,8 @@ Read the failed files, understand the errors, and fix them.
         results.append(result)
         if not result.success:
             print_status("Discovery failed", "error")
+            task_logger.log("Discovery phase failed", LogEntryType.ERROR)
+            task_logger.end_phase(LogPhase.PLANNING, success=False, message="Discovery failed")
             return False
 
         # === PHASE 2: REQUIREMENTS GATHERING ===
@@ -1621,6 +1682,8 @@ Read the failed files, understand the errors, and fix them.
         results.append(result)
         if not result.success:
             print_status("Requirements gathering failed", "error")
+            task_logger.log("Requirements gathering failed", LogEntryType.ERROR)
+            task_logger.end_phase(LogPhase.PLANNING, success=False, message="Requirements gathering failed")
             return False
 
         # Rename spec folder with better name from requirements
@@ -1644,6 +1707,8 @@ Read the failed files, understand the errors, and fix them.
         results.append(result)
         if not result.success:
             print_status("Complexity assessment failed", "error")
+            task_logger.log("Complexity assessment failed", LogEntryType.ERROR)
+            task_logger.end_phase(LogPhase.PLANNING, success=False, message="Complexity assessment failed")
             return False
 
         # Map of all available phases (remaining after discovery/requirements/complexity)
@@ -1685,6 +1750,8 @@ Read the failed files, understand the errors, and fix them.
                     print(f"    {icon(Icons.ARROW_RIGHT)} {err}")
                 print()
                 print_status("Spec creation incomplete. Fix errors and retry.", "warning")
+                task_logger.log(f"Phase '{phase_name}' failed: {'; '.join(result.errors)}", LogEntryType.ERROR)
+                task_logger.end_phase(LogPhase.PLANNING, success=False, message=f"Phase {phase_name} failed")
                 return False
 
         # Summary
@@ -1702,6 +1769,9 @@ Read the failed files, understand the errors, and fix them.
             title=f"{icon(Icons.SUCCESS)} SPEC CREATION COMPLETE",
             style="heavy"
         ))
+
+        # End planning phase successfully
+        task_logger.end_phase(LogPhase.PLANNING, success=True, message="Spec creation complete")
 
         # === HUMAN REVIEW CHECKPOINT ===
         # Pause before build to allow human to review spec and implementation plan

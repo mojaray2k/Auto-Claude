@@ -511,13 +511,9 @@ async def run_agent_session(
                     if block_type == "TextBlock" and hasattr(block, "text"):
                         response_text += block.text
                         print(block.text, end="", flush=True)
-                        # Log text to task logger (emit streaming marker)
+                        # Log text to task logger (persist without double-printing)
                         if task_logger and block.text.strip():
-                            task_logger._emit("TEXT", {
-                                "content": block.text,
-                                "phase": phase.value,
-                                "timestamp": task_logger._timestamp()
-                            })
+                            task_logger.log(block.text, LogEntryType.TEXT, phase, print_to_console=False)
                     elif block_type == "ToolUseBlock" and hasattr(block, "name"):
                         tool_name = block.name
                         tool_input = None
@@ -541,17 +537,18 @@ async def run_agent_session(
                                 elif "path" in inp:
                                     tool_input = inp["path"]
 
-                        print(f"\n[Tool: {tool_name}]", flush=True)
+                        # Log tool start (handles printing too)
+                        if task_logger:
+                            task_logger.tool_start(tool_name, tool_input, phase, print_to_console=True)
+                        else:
+                            print(f"\n[Tool: {tool_name}]", flush=True)
+
                         if verbose and hasattr(block, "input"):
                             input_str = str(block.input)
                             if len(input_str) > 300:
                                 print(f"   Input: {input_str[:300]}...", flush=True)
                             else:
                                 print(f"   Input: {input_str}", flush=True)
-
-                        # Log tool start
-                        if task_logger:
-                            task_logger.tool_start(tool_name, tool_input, phase)
                         current_tool = tool_name
 
             # Handle UserMessage (tool results)

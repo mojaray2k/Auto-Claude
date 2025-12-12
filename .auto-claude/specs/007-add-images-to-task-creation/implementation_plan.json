@@ -46,7 +46,7 @@
         {
           "id": "remove-old",
           "description": "Remove old system code",
-          "status": "pending",
+          "status": "completed",
           "verification": {
             "type": "command",
             "run": "echo 'Old system removed - verify no references remain'"

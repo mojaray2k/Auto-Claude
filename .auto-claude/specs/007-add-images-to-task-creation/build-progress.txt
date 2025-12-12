@@ -97,3 +97,30 @@ Updated UI consumers to display attached images and show image indicators throug
 ### Notes
 - Insights chat creates tasks via suggestedTask which doesn't include images (expected behavior - images are for manual task creation)
 - Image thumbnails are only shown during upload in TaskCreationWizard (not in TaskDetailPanel to keep it lightweight)
+
+---
+
+## Chunk: remove-old
+**Status:** COMPLETED
+**Date:** 2025-12-12
+
+### Summary
+Verified no old system code exists to remove - this is a new feature, not a refactor.
+
+### Analysis Performed
+1. Searched for any legacy/deprecated/old image-related code - none found
+2. Verified ImageUpload.tsx is the only image upload component
+3. Confirmed clean implementation with no duplicates:
+   - Only one `ImageAttachment` type in types.ts
+   - Only one set of image constants in constants.ts
+   - Only one ImageUpload component
+   - Clean integration in TaskCreationWizard, TaskDetailPanel, TaskCard
+   - Single IPC handler implementation
+
+### Verification
+- No old system code exists to remove
+- All image-related code is new and follows clean architecture
+- No orphaned files or duplicate implementations found
+
+### Notes
+This phase is effectively N/A because the implementation plan was generated with a generic "refactor" workflow template, but the actual task is a new feature addition. There was never an "old system" for image attachments in task creation.

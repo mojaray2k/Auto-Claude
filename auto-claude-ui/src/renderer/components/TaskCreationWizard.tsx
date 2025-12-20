@@ -637,6 +637,7 @@ export function TaskCreationWizard({
       // Check if we have parsed subtasks from markdown - create hierarchical task
       if (parsedSubtasks.length > 0) {
         console.log('[Create] Creating hierarchical task with', parsedSubtasks.length, 'children');
+        console.log('[Create] Subtasks:', parsedSubtasks);
         const result = await createTaskWithChildren(
           projectId,
           title.trim(),
@@ -645,14 +646,17 @@ export function TaskCreationWizard({
           metadata
         );
 
+        console.log('[Create] createTaskWithChildren returned:', result);
+
         if (result) {
-          console.log('[Create] Hierarchical task created:', result);
+          console.log('[Create] Hierarchical task created successfully:', result);
           // Clear draft on successful creation
           clearDraft(projectId);
           // Reset form and close
           resetForm();
           onOpenChange(false);
         } else {
+          console.error('[Create] createTaskWithChildren returned null');
           setError('Failed to create task with subtasks. Please try again.');
         }
       } else {

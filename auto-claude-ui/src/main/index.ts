@@ -8,6 +8,7 @@ import { pythonEnvManager } from './python-env-manager';
 import { getUsageMonitor } from './claude-profile/usage-monitor';
 import { initializeUsageMonitorForwarding } from './ipc-handlers/terminal-handlers';
 import { initializeAppUpdater } from './app-updater';
+import { initializeLogForwarding } from './log-forwarder';
 
 // Get icon path based on platform
 function getIconPath(): string {
@@ -128,6 +129,9 @@ app.whenReady().then(() => {
 
   // Create window
   createWindow();
+
+  // Initialize log forwarding to DevTools (must be after window creation)
+  initializeLogForwarding(() => mainWindow);
 
   // Initialize usage monitoring after window is created
   if (mainWindow) {

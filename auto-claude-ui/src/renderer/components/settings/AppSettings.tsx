@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Settings,
   Save,
@@ -14,7 +14,8 @@ import {
   Github,
   Database,
   Sparkles,
-  Puzzle
+  Puzzle,
+  Layers
 } from 'lucide-react';
 import {
   FullScreenDialog,
@@ -67,13 +68,22 @@ const appNavItems: NavItem<AppSection>[] = [
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Alert preferences' }
 ];
 
-const projectNavItems: NavItem<ProjectSettingsSection>[] = [
+// Base project nav items (always shown)
+const baseProjectNavItems: NavItem<ProjectSettingsSection>[] = [
   { id: 'general', label: 'General', icon: Settings2, description: 'Auto-Build and agent config' },
   { id: 'claude', label: 'Claude Auth', icon: Key, description: 'Claude authentication' },
   { id: 'linear', label: 'Linear', icon: Zap, description: 'Linear integration' },
   { id: 'github', label: 'GitHub', icon: Github, description: 'GitHub issues sync' },
   { id: 'memory', label: 'Memory', icon: Database, description: 'Graphiti memory backend' }
 ];
+
+// Boilerplate nav item (shown only for boilerplate projects)
+const boilerplateNavItem: NavItem<ProjectSettingsSection> = {
+  id: 'boilerplate',
+  label: 'Boilerplate',
+  icon: Layers,
+  description: 'Plugin skills and updates'
+};
 
 /**
  * Main application settings dialog container
@@ -106,6 +116,14 @@ export function AppSettingsDialog({ open, onOpenChange, initialSection, initialP
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
   const selectProject = useProjectStore((state) => state.selectProject);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+
+  // Compute project nav items - include boilerplate tab only for boilerplate projects
+  const projectNavItems = useMemo(() => {
+    if (selectedProject?.boilerplateInfo) {
+      return [...baseProjectNavItems, boilerplateNavItem];
+    }
+    return baseProjectNavItems;
+  }, [selectedProject?.boilerplateInfo]);
 
   // Project settings hook state (lifted from child)
   const [projectSettingsHook, setProjectSettingsHook] = useState<UseProjectSettingsReturn | null>(null);

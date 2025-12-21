@@ -74,6 +74,23 @@ export function GeneralSettings({ settings, onSettingsChange, section }: General
               />
             </div>
           </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between max-w-md">
+              <div className="space-y-1">
+                <Label htmlFor="enablePluginContextInjection" className="text-sm font-medium text-foreground">
+                  Plugin Context Injection
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Automatically inject boilerplate skills and patterns into task context
+                </p>
+              </div>
+              <Switch
+                id="enablePluginContextInjection"
+                checked={settings.enablePluginContextInjection !== false}
+                onCheckedChange={(checked) => onSettingsChange({ ...settings, enablePluginContextInjection: checked })}
+              />
+            </div>
+          </div>
         </div>
       </SettingsSection>
     );

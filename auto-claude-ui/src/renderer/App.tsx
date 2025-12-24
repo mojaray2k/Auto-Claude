@@ -168,18 +168,19 @@ export function App() {
 
   // Restore tab state and open tabs for loaded projects
   useEffect(() => {
-    console.log('[App] Tab restore useEffect triggered:', {
-      projectsCount: projects.length,
-      openProjectIds,
-      activeProjectId,
-      selectedProjectId,
-      projectTabsCount: projectTabs.length,
-      projectTabIds: projectTabs.map(p => p.id)
-    });
+    // Only log in development to avoid console spam
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[App] Tab restore useEffect triggered:', {
+        projectsCount: projects.length,
+        openProjectIds,
+        activeProjectId,
+        selectedProjectId
+      });
+    }
 
     if (projects.length > 0) {
-      // Check openProjectIds (persisted state) instead of projectTabs (computed)
-      // to avoid race condition where projectTabs is empty before projects load
+      // Check openProjectIds (persisted state) to avoid issues with computed projectTabs
+      // which creates a new array reference each call and would cause infinite loops
       if (openProjectIds.length === 0) {
         // No tabs persisted at all, open the first available project
         const projectToOpen = activeProjectId || selectedProjectId || projects[0].id;
@@ -196,9 +197,9 @@ export function App() {
         }
         return;
       }
-      console.log('[App] Tabs already persisted, checking active project');
       // If there's an active project but no tabs open for it, open a tab
-      if (activeProjectId && !projectTabs.some(tab => tab.id === activeProjectId)) {
+      // Use openProjectIds instead of projectTabs to avoid array reference issues
+      if (activeProjectId && !openProjectIds.includes(activeProjectId)) {
         console.log('[App] Active project has no tab, opening:', activeProjectId);
         openProjectTab(activeProjectId);
       }
@@ -207,11 +208,9 @@ export function App() {
         console.log('[App] No active project, using selected:', selectedProjectId);
         setActiveProject(selectedProjectId);
         openProjectTab(selectedProjectId);
-      } else {
-        console.log('[App] Tab state is valid, no action needed');
       }
     }
-  }, [projects, activeProjectId, selectedProjectId, openProjectIds, projectTabs, openProjectTab, setActiveProject]);
+  }, [projects, activeProjectId, selectedProjectId, openProjectIds, openProjectTab, setActiveProject]);
 
   // Track if settings have been loaded at least once
   const [settingsHaveLoaded, setSettingsHaveLoaded] = useState(false);

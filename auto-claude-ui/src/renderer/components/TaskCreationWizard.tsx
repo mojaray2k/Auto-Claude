@@ -501,6 +501,63 @@ export function TaskCreationWizard({
   }, []);
 
   /**
+   * Handle markdown file drop - parse and populate form
+   */
+  const handleMarkdownFileDrop = useCallback(async (filePath: string, filename: string) => {
+    try {
+      console.log('[Markdown] Reading file:', filePath);
+      const result = await window.electronAPI.readFileContent(filePath);
+
+      if (!result.success || !result.data) {
+        setError(`Failed to read file: ${result.error}`);
+        return;
+      }
+
+      console.log('[Markdown] Parsing content...');
+      const parsed = parseMarkdownTask(result.data, filename);
+      console.log('[Markdown] Parsed task:', parsed);
+
+      // Populate form with parsed data
+      setDescription(generateRichDescription(parsed));
+      setTitle(parsed.title);
+
+      // Add the markdown file as a referenced file
+      const newFile: ReferencedFile = {
+        id: crypto.randomUUID(),
+        path: filePath,
+        name: filename,
+        isDirectory: false,
+        addedAt: new Date()
+      };
+      setReferencedFiles(prev => [...prev, newFile]);
+
+      console.log('[Markdown] Form populated with task data');
+
+      // Store parsed subtasks for hierarchical task creation
+      if (parsed.subtasks.length > 0) {
+        console.log('[Markdown] Detected subtasks:', parsed.subtasks);
+        const children = parsed.subtasks.map((subtask, index) => ({
+          title: subtask.title,
+          description: subtask.description,
+          orderIndex: index
+        }));
+        setParsedSubtasks(children);
+        console.log('[Markdown] Stored subtasks for hierarchical creation:', children);
+      }
+
+      // TODO: Handle dependencies
+      if (parsed.dependencies.length > 0) {
+        console.log('[Markdown] Detected dependencies:', parsed.dependencies);
+        // Future: Link dependencies when that feature is available
+      }
+
+    } catch (error) {
+      console.error('[Markdown] Error parsing file:', error);
+      setError(`Failed to parse markdown file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, []);
+
+  /**
    * Handle drop on textarea for file references and images
    */
   const handleTextareaDrop = useCallback(
@@ -517,6 +574,14 @@ export function TaskCreationWizard({
         try {
           const data = JSON.parse(jsonData);
           if (data.type === 'file-reference' && data.name) {
+            // Check if it's a markdown file - parse it instead of inserting @mention
+            const isMarkdown = data.name.endsWith('.md');
+            if (isMarkdown && data.path) {
+              console.log('[Drop] Markdown file detected, parsing content:', data.name);
+              handleMarkdownFileDrop(data.path, data.name);
+              return;
+            }
+
             // Insert @mention at cursor position in the textarea
             const textarea = descriptionRef.current;
             if (textarea) {
@@ -610,64 +675,64 @@ export function TaskCreationWizard({
         setTimeout(() => setPasteSuccess(false), 2000);
       }
     },
-    [images, isCreating, description]
+    [images, isCreating, description, handleMarkdownFileDrop]
   );
 
   /**
-   * Handle markdown file drop - parse and populate form
+   * Handle native drop on the form container (for files from FileTreeItem)
    */
-  const handleMarkdownFileDrop = useCallback(async (filePath: string, filename: string) => {
-    try {
-      console.log('[Markdown] Reading file:', filePath);
-      const result = await window.electronAPI.readFileContent(filePath);
+  const handleFormDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-      if (!result.success || !result.data) {
-        setError(`Failed to read file: ${result.error}`);
-        return;
+      if (isCreating) return;
+
+      // Check for file reference drops (from the file explorer using native HTML5 drag)
+      const jsonData = e.dataTransfer?.getData('application/json');
+      if (jsonData) {
+        try {
+          const data = JSON.parse(jsonData);
+          if (data.type === 'file-reference' && data.name && data.path) {
+            // Check if it's a markdown file - parse it
+            const isMarkdown = data.name.endsWith('.md');
+            if (isMarkdown) {
+              console.log('[FormDrop] Markdown file detected, parsing content:', data.name);
+              handleMarkdownFileDrop(data.path, data.name);
+              return;
+            }
+
+            // For non-markdown files, add to referenced files
+            if (referencedFiles.length < MAX_REFERENCED_FILES) {
+              if (!referencedFiles.some(f => f.path === data.path)) {
+                const newFile: ReferencedFile = {
+                  id: crypto.randomUUID(),
+                  path: data.path,
+                  name: data.name,
+                  isDirectory: data.isDirectory ?? false,
+                  addedAt: new Date()
+                };
+                console.log('[FormDrop] Adding file to referenced files:', newFile);
+                setReferencedFiles(prev => [...prev, newFile]);
+              }
+            } else {
+              setError(`Maximum of ${MAX_REFERENCED_FILES} referenced files allowed`);
+            }
+          }
+        } catch {
+          // Not valid JSON, ignore
+        }
       }
+    },
+    [isCreating, handleMarkdownFileDrop, referencedFiles]
+  );
 
-      console.log('[Markdown] Parsing content...');
-      const parsed = parseMarkdownTask(result.data, filename);
-      console.log('[Markdown] Parsed task:', parsed);
-
-      // Populate form with parsed data
-      setDescription(generateRichDescription(parsed));
-      setTitle(parsed.title);
-
-      // Add the markdown file as a referenced file
-      const newFile: ReferencedFile = {
-        id: crypto.randomUUID(),
-        path: filePath,
-        name: filename,
-        isDirectory: false,
-        addedAt: new Date()
-      };
-      setReferencedFiles(prev => [...prev, newFile]);
-
-      console.log('[Markdown] Form populated with task data');
-
-      // Store parsed subtasks for hierarchical task creation
-      if (parsed.subtasks.length > 0) {
-        console.log('[Markdown] Detected subtasks:', parsed.subtasks);
-        const children = parsed.subtasks.map((subtask, index) => ({
-          title: subtask.title,
-          description: subtask.description,
-          orderIndex: index
-        }));
-        setParsedSubtasks(children);
-        console.log('[Markdown] Stored subtasks for hierarchical creation:', children);
-      }
-
-      // TODO: Handle dependencies
-      if (parsed.dependencies.length > 0) {
-        console.log('[Markdown] Detected dependencies:', parsed.dependencies);
-        // Future: Link dependencies when that feature is available
-      }
-
-    } catch (error) {
-      console.error('[Markdown] Error parsing file:', error);
-      setError(`Failed to parse markdown file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+  /**
+   * Handle dragover on form to allow drop
+   */
+  const handleFormDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
   }, []);
 
   /**
@@ -722,7 +787,17 @@ export function TaskCreationWizard({
     }
 
     // Handle drop on description textarea - insert inline @mention
+    // BUT: If it's a markdown file, parse it instead of inserting @mention
     if (over.id === 'description-drop-zone') {
+      const isMarkdown = data.name.endsWith('.md');
+
+      if (isMarkdown) {
+        // Markdown files should be parsed to populate form, not inserted as @mention
+        console.log('[DnD] Markdown file dropped on description, parsing instead of @mention');
+        handleMarkdownFileDrop(data.path, data.name);
+        return;
+      }
+
       const textarea = descriptionRef.current;
       if (!textarea) return;
 
@@ -983,6 +1058,8 @@ export function TaskCreationWizard({
         {/* Form content - Drop zone wrapper */}
         <div
           ref={setDropRef}
+          onDrop={handleFormDrop}
+          onDragOver={handleFormDragOver}
               className={cn(
                 "flex-1 flex flex-col p-6 min-w-0 min-h-0 overflow-y-auto relative transition-all duration-150 ease-out",
                 // Default state - no border

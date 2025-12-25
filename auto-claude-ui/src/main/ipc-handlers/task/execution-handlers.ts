@@ -543,7 +543,9 @@ export function registerTaskExecutionHandlers(
 
       // Validate status transition - 'human_review' requires actual work to have been done
       // This prevents tasks from being incorrectly marked as ready for review when execution failed
-      if (status === 'human_review') {
+      // Skip this check for parent tasks - they don't have their own spec files, their children do
+      const isParentTask = taskHasChildren(task.id, project.id);
+      if (status === 'human_review' && !isParentTask) {
         const specsBaseDirForValidation = getSpecsDir(project.autoBuildPath);
         const specDirForValidation = path.join(
           project.path,

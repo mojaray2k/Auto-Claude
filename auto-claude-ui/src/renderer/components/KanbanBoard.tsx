@@ -489,13 +489,26 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
 
     const activeTaskId = active.id as string;
     const overId = over.id as string;
+    const task = tasks.find((t) => t.id === activeTaskId);
+
+    if (!task) return;
+
+    // Helper to check if task is a parent task
+    const isParentTask = task.hasChildren || (task.childTaskIds && task.childTaskIds.length > 0);
 
     // Check if dropped on a column
     if (TASK_STATUS_COLUMNS.includes(overId as TaskStatus)) {
       const newStatus = overId as TaskStatus;
-      const task = tasks.find((t) => t.id === activeTaskId);
 
-      if (task && task.status !== newStatus) {
+      if (task.status !== newStatus) {
+        // Prevent parent tasks from being dragged to in_progress
+        if (isParentTask && newStatus === 'in_progress') {
+          // Silently ignore - the visual feedback shows it's a parent task
+          // Users should start child tasks instead
+          console.log('[KanbanBoard] Blocked: Cannot drag parent task to in_progress. Start child tasks instead.');
+          return;
+        }
+
         // Persist status change - don't auto-refresh on failure to prevent loops
         await persistTaskStatus(activeTaskId, newStatus);
       }
@@ -505,8 +518,13 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
     // Check if dropped on another task - move to that task's column
     const overTask = tasks.find((t) => t.id === overId);
     if (overTask) {
-      const task = tasks.find((t) => t.id === activeTaskId);
-      if (task && task.status !== overTask.status) {
+      if (task.status !== overTask.status) {
+        // Prevent parent tasks from being dragged to in_progress
+        if (isParentTask && overTask.status === 'in_progress') {
+          console.log('[KanbanBoard] Blocked: Cannot drag parent task to in_progress column. Start child tasks instead.');
+          return;
+        }
+
         // Persist status change - don't auto-refresh on failure to prevent loops
         await persistTaskStatus(activeTaskId, overTask.status);
       }

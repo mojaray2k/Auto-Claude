@@ -371,23 +371,48 @@ export async function persistTaskStatus(
   // Store original status for rollback if persist fails
   const originalStatus = task.status;
 
-  // Validate parent task status changes - block moving past in_progress if children not done
-  const reviewStatuses: TaskStatus[] = ['ai_review', 'human_review', 'done'];
+  // Validate parent task status changes based on children's statuses
   if (task.hasChildren || (task.childTaskIds && task.childTaskIds.length > 0)) {
-    if (reviewStatuses.includes(status)) {
-      // Get all child tasks
-      const childIds = task.childTaskIds || [];
-      const childTasks = store.tasks.filter(t => childIds.includes(t.id) || t.parentTaskId === task.id);
+    // Get all child tasks
+    const childIds = task.childTaskIds || [];
+    const childTasks = store.tasks.filter(t => childIds.includes(t.id) || t.parentTaskId === task.id);
 
-      // Check if all children are done
-      const incompleteChildren = childTasks.filter(child => child.status !== 'done');
+    if (childTasks.length > 0) {
+      // Define status progression levels
+      const statusLevel = (s: TaskStatus): number => {
+        switch (s) {
+          case 'backlog': return 0;
+          case 'in_progress': return 1;
+          case 'ai_review': return 2;
+          case 'human_review': return 3;
+          case 'done': return 4;
+          default: return 0;
+        }
+      };
 
-      if (incompleteChildren.length > 0) {
-        const completedCount = childTasks.length - incompleteChildren.length;
-        const errorMsg = `Cannot move parent task to "${status}". Complete all subtasks first (${completedCount}/${childTasks.length} done).`;
-        console.warn(`[persistTaskStatus] ${errorMsg}`);
-        store.setError(errorMsg);
-        return false;
+      const targetLevel = statusLevel(status);
+
+      // For moving to 'done', ALL children must be 'done'
+      if (status === 'done') {
+        const notDoneChildren = childTasks.filter(child => child.status !== 'done');
+        if (notDoneChildren.length > 0) {
+          const doneCount = childTasks.length - notDoneChildren.length;
+          const errorMsg = `Cannot move parent task to "done". Complete all subtasks first (${doneCount}/${childTasks.length} done).`;
+          console.warn(`[persistTaskStatus] ${errorMsg}`);
+          store.setError(errorMsg);
+          return false;
+        }
+      }
+      // For moving to review statuses, all children must be at or past that level
+      else if (status === 'ai_review' || status === 'human_review') {
+        const behindChildren = childTasks.filter(child => statusLevel(child.status) < targetLevel);
+        if (behindChildren.length > 0) {
+          const readyCount = childTasks.length - behindChildren.length;
+          const errorMsg = `Cannot move parent task to "${status}". ${behindChildren.length} subtask(s) not yet at this stage (${readyCount}/${childTasks.length} ready).`;
+          console.warn(`[persistTaskStatus] ${errorMsg}`);
+          store.setError(errorMsg);
+          return false;
+        }
       }
     }
   }

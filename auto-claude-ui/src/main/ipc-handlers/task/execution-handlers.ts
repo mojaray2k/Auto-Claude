@@ -463,17 +463,32 @@ export function registerTaskExecutionHandlers(
       // Special handling for parent tasks: restrict movement based on children status
       if (taskHasChildren(task.id, project.id)) {
         const children = findChildTasks(task.id, project.id);
-        const incompleteChildren = children.filter(c => c.status !== 'done');
         const hasInProgressChildren = children.some(c => c.status === 'in_progress');
-        const allChildrenDone = incompleteChildren.length === 0;
 
-        // Parent cannot move to 'done' while children are incomplete
-        if (status === 'done' && !allChildrenDone) {
-          console.warn(`[TASK_UPDATE_STATUS] Blocked: Cannot mark parent ${taskId} as done - ${incompleteChildren.length} children incomplete`);
-          return {
-            success: false,
-            error: `Cannot mark parent task as done. ${incompleteChildren.length} child task(s) are still incomplete. Complete all child tasks first.`
-          };
+        // Define status progression levels
+        const statusLevel = (s: TaskStatus): number => {
+          switch (s) {
+            case 'backlog': return 0;
+            case 'in_progress': return 1;
+            case 'ai_review': return 2;
+            case 'human_review': return 3;
+            case 'done': return 4;
+            default: return 0;
+          }
+        };
+
+        const targetLevel = statusLevel(status);
+
+        // Parent cannot move to 'done' while children are not done
+        if (status === 'done') {
+          const notDoneChildren = children.filter(c => c.status !== 'done');
+          if (notDoneChildren.length > 0) {
+            console.warn(`[TASK_UPDATE_STATUS] Blocked: Cannot mark parent ${taskId} as done - ${notDoneChildren.length} children not done`);
+            return {
+              success: false,
+              error: `Cannot mark parent task as done. ${notDoneChildren.length} child task(s) are not complete. Complete all child tasks first.`
+            };
+          }
         }
 
         // Parent cannot move to 'backlog' while children are in progress
@@ -485,16 +500,20 @@ export function registerTaskExecutionHandlers(
           };
         }
 
-        // Parent cannot move out of 'in_progress' while children are incomplete (except to backlog if no running children)
-        if (task.status === 'in_progress' && status !== 'in_progress' && status !== 'backlog' && !allChildrenDone) {
-          console.warn(`[TASK_UPDATE_STATUS] Blocked: Cannot move parent ${taskId} from in_progress to ${status} - children incomplete`);
-          return {
-            success: false,
-            error: `Cannot move parent task from In Progress. ${incompleteChildren.length} child task(s) are still incomplete.`
-          };
+        // For moving to review statuses, all children must be at or past that level
+        if (status === 'ai_review' || status === 'human_review') {
+          const behindChildren = children.filter(c => statusLevel(c.status) < targetLevel);
+          if (behindChildren.length > 0) {
+            const readyCount = children.length - behindChildren.length;
+            console.warn(`[TASK_UPDATE_STATUS] Blocked: Cannot move parent ${taskId} to ${status} - ${behindChildren.length} children not ready`);
+            return {
+              success: false,
+              error: `Cannot move parent task to "${status}". ${behindChildren.length} child task(s) not yet at this stage (${readyCount}/${children.length} ready).`
+            };
+          }
         }
 
-        console.log(`[TASK_UPDATE_STATUS] Parent task ${taskId} status change to ${status} allowed. Children: ${children.length} total, ${incompleteChildren.length} incomplete`);
+        console.log(`[TASK_UPDATE_STATUS] Parent task ${taskId} status change to ${status} allowed. Children: ${children.length} total`);
       }
 
       // Validate status transition - 'done' can only be set through merge handler

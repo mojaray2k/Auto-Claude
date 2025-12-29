@@ -635,6 +635,49 @@ export function registerWorktreeHandlers(
                 mainWindow.webContents.send(IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, newStatus);
               }
 
+              // Clean up worktree after successful merge (when status is 'done')
+              if (newStatus === 'done' && !staged) {
+                const worktreePathToClean = path.join(project.path, '.worktrees', task.specId);
+                if (existsSync(worktreePathToClean)) {
+                  debug('Cleaning up worktree after successful merge:', worktreePathToClean);
+                  try {
+                    // Get the branch name before removing
+                    let branchToDelete: string | null = null;
+                    try {
+                      branchToDelete = execSync('git rev-parse --abbrev-ref HEAD', {
+                        cwd: worktreePathToClean,
+                        encoding: 'utf-8'
+                      }).trim();
+                    } catch {
+                      // Ignore - branch might not exist
+                    }
+
+                    // Remove the worktree
+                    execSync(`git worktree remove --force "${worktreePathToClean}"`, {
+                      cwd: project.path,
+                      encoding: 'utf-8'
+                    });
+                    debug('Worktree removed:', worktreePathToClean);
+
+                    // Delete the branch (it's been merged)
+                    if (branchToDelete && branchToDelete.startsWith('auto-claude/')) {
+                      try {
+                        execSync(`git branch -D "${branchToDelete}"`, {
+                          cwd: project.path,
+                          encoding: 'utf-8'
+                        });
+                        debug('Branch deleted:', branchToDelete);
+                      } catch {
+                        // Branch might already be deleted or not exist
+                      }
+                    }
+                  } catch (cleanupError) {
+                    // Log but don't fail - the merge succeeded
+                    console.error('[MERGE] Failed to clean up worktree:', cleanupError);
+                  }
+                }
+              }
+
               resolve({
                 success: true,
                 data: {

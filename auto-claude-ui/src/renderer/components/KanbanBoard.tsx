@@ -588,15 +588,18 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
         createBranch: mergeDialog.branchName.trim()
       });
 
-      if (result.success) {
-        // Update local state to done
-        updateTaskStatus(mergeDialog.taskId, 'done');
+      // Check both IPC success and actual merge success
+      if (result.success && result.data?.success) {
+        // Backend already updates status to 'done' and sends event
+        // Just close the dialog - the status change event will update the UI
         setMergeDialog({ open: false, taskId: null, taskTitle: '', specId: null, branchName: '', isMerging: false, error: null });
       } else {
+        // Show the actual error from the merge operation
+        const errorMsg = result.data?.message || result.error || 'Failed to merge worktree changes';
         setMergeDialog(prev => ({
           ...prev,
           isMerging: false,
-          error: result.error || 'Failed to merge worktree changes'
+          error: errorMsg
         }));
       }
     } catch (err) {

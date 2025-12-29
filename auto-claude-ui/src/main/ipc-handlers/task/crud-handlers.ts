@@ -389,7 +389,7 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
 
           // Update parent's metadata file
           const parentSpecDir = path.join(parentProject.path, getSpecsDir(parentProject.autoBuildPath), parentTask.specId);
-          const parentMetadataPath = path.join(parentSpecDir, 'metadata.json');
+          const parentMetadataPath = path.join(parentSpecDir, 'task_metadata.json');
 
           if (existsSync(parentMetadataPath)) {
             try {

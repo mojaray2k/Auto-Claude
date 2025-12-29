@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, AUTO_BUILD_PATHS } from '../../../shared/constants';
-import type { IPCResult, WorktreeStatus, WorktreeDiff, WorktreeDiffFile, WorktreeMergeResult, WorktreeDiscardResult, WorktreeListResult, WorktreeListItem, MergeOptions } from '../../../shared/types';
+import type { IPCResult, WorktreeStatus, WorktreeDiff, WorktreeDiffFile, WorktreeMergeResult, WorktreeDiscardResult, WorktreeListResult, WorktreeListItem, MergeOptions, WorktreePRResult } from '../../../shared/types';
 import path from 'path';
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
 import { execSync, spawn, spawnSync } from 'child_process';
@@ -1054,6 +1054,168 @@ export function registerWorktreeHandlers(
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to list worktrees'
+        };
+      }
+    }
+  );
+
+  /**
+   * Create a PR from the worktree branch
+   * Pushes the branch to remote and creates a GitHub PR using gh CLI
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_WORKTREE_CREATE_PR,
+    async (_, taskId: string, options?: { title?: string; body?: string; draft?: boolean }): Promise<IPCResult<WorktreePRResult>> => {
+      console.log('[WORKTREE_CREATE_PR] Creating PR for task:', taskId);
+
+      try {
+        const { task, project } = findTaskAndProject(taskId);
+        if (!task || !project) {
+          return { success: false, error: 'Task not found' };
+        }
+
+        // Per-spec worktree path
+        const worktreePath = path.join(project.path, '.worktrees', task.specId);
+
+        if (!existsSync(worktreePath)) {
+          return { success: false, error: 'No worktree found for this task' };
+        }
+
+        // Get the branch name
+        let branch: string;
+        try {
+          branch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: worktreePath,
+            encoding: 'utf-8'
+          }).trim();
+        } catch {
+          return { success: false, error: 'Failed to get branch name from worktree' };
+        }
+
+        // Check if gh CLI is available
+        try {
+          execSync('gh --version', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch {
+          return {
+            success: false,
+            error: 'GitHub CLI (gh) is not installed. Please install it from https://cli.github.com/'
+          };
+        }
+
+        // Check if gh is authenticated
+        try {
+          execSync('gh auth status', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch {
+          return {
+            success: false,
+            error: 'Not authenticated with GitHub CLI. Run "gh auth login" in your terminal.'
+          };
+        }
+
+        // Push the branch to remote
+        console.log('[WORKTREE_CREATE_PR] Pushing branch:', branch);
+        try {
+          execSync(`git push -u origin "${branch}"`, {
+            cwd: worktreePath,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+        } catch (pushError) {
+          const errorMsg = pushError instanceof Error ? pushError.message : String(pushError);
+          // Check if it's just "everything up-to-date" which is not an error
+          if (!errorMsg.includes('Everything up-to-date')) {
+            console.error('[WORKTREE_CREATE_PR] Push failed:', errorMsg);
+            return {
+              success: false,
+              error: `Failed to push branch: ${errorMsg}`
+            };
+          }
+        }
+
+        // Get the base branch (main/master/develop)
+        let baseBranch = 'main';
+        try {
+          baseBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: project.path,
+            encoding: 'utf-8'
+          }).trim();
+        } catch {
+          // Fall back to main
+        }
+
+        // Create the PR using gh CLI
+        const title = options?.title || task.title;
+        const body = options?.body || `Auto-generated PR for task: ${task.title}\n\nSpec ID: ${task.specId}`;
+        const draftFlag = options?.draft ? '--draft' : '';
+
+        console.log('[WORKTREE_CREATE_PR] Creating PR with gh CLI');
+        try {
+          const prOutput = execSync(
+            `gh pr create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}" --base "${baseBranch}" ${draftFlag}`,
+            {
+              cwd: worktreePath,
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe']
+            }
+          ).trim();
+
+          // Parse the PR URL from output
+          const prUrl = prOutput.match(/https:\/\/github\.com\/[^\s]+/)?.[0] || prOutput;
+          const prNumber = parseInt(prUrl.match(/\/pull\/(\d+)/)?.[1] || '0', 10);
+
+          console.log('[WORKTREE_CREATE_PR] PR created:', prUrl);
+
+          return {
+            success: true,
+            data: {
+              success: true,
+              message: 'Pull request created successfully',
+              prUrl,
+              prNumber,
+              branch
+            }
+          };
+        } catch (prError) {
+          const errorOutput = prError instanceof Error ? (prError as NodeJS.ErrnoException & { stderr?: string }).stderr || prError.message : String(prError);
+
+          // Check if PR already exists
+          if (errorOutput.includes('already exists')) {
+            // Try to get the existing PR URL
+            try {
+              const existingPr = execSync(`gh pr view "${branch}" --json url --jq .url`, {
+                cwd: worktreePath,
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe']
+              }).trim();
+
+              return {
+                success: true,
+                data: {
+                  success: true,
+                  message: 'Pull request already exists',
+                  prUrl: existingPr,
+                  branch
+                }
+              };
+            } catch {
+              return {
+                success: false,
+                error: 'A pull request already exists for this branch'
+              };
+            }
+          }
+
+          console.error('[WORKTREE_CREATE_PR] Failed to create PR:', errorOutput);
+          return {
+            success: false,
+            error: `Failed to create PR: ${errorOutput}`
+          };
+        }
+      } catch (error) {
+        console.error('[WORKTREE_CREATE_PR] Error:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to create pull request'
         };
       }
     }

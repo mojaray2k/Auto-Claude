@@ -17,17 +17,29 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, ChevronDown, ChevronRight, RefreshCw, GitMerge, GitPullRequest } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
+import { Input } from './ui/input';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger
 } from './ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
+import { useTaskStore } from '../stores/task-store';
 import { TaskCard } from './TaskCard';
 import { SortableTaskCard } from './SortableTaskCard';
 import { TASK_STATUS_COLUMNS, TASK_STATUS_LABELS } from '../../shared/constants';
@@ -314,6 +326,17 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Merge confirmation dialog state
+  const [mergeDialog, setMergeDialog] = useState<{
+    open: boolean;
+    taskId: string | null;
+    taskTitle: string;
+    specId: string | null;
+    branchName: string;
+    isMerging: boolean;
+    error: string | null;
+  }>({ open: false, taskId: null, taskTitle: '', specId: null, branchName: '', isMerging: false, error: null });
+  const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(() => {
     // Initialize with all parent tasks expanded by default
     const initialExpanded = new Set<string>();
@@ -496,6 +519,27 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
     // Helper to check if task is a parent task
     const isParentTask = task.hasChildren || (task.childTaskIds && task.childTaskIds.length > 0);
 
+    // Helper function to handle status update with merge dialog for done status
+    const updateStatus = async (taskId: string, newStatus: TaskStatus, taskTitle: string, fromStatus: TaskStatus, specId: string) => {
+      // If moving to done from human_review, show merge dialog instead of direct update
+      if (newStatus === 'done' && fromStatus === 'human_review') {
+        // Generate a default branch name from the spec ID
+        const defaultBranchName = `feature/${specId}`;
+        setMergeDialog({
+          open: true,
+          taskId,
+          taskTitle,
+          specId,
+          branchName: defaultBranchName,
+          isMerging: false,
+          error: null
+        });
+        return;
+      }
+
+      await persistTaskStatus(taskId, newStatus);
+    };
+
     // Check if dropped on a column
     if (TASK_STATUS_COLUMNS.includes(overId as TaskStatus)) {
       const newStatus = overId as TaskStatus;
@@ -509,8 +553,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
           return;
         }
 
-        // Persist status change - don't auto-refresh on failure to prevent loops
-        await persistTaskStatus(activeTaskId, newStatus);
+        // Persist status change - show merge dialog if moving to done from human_review
+        await updateStatus(activeTaskId, newStatus, task.title, task.status, task.specId);
       }
       return;
     }
@@ -525,9 +569,104 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
           return;
         }
 
-        // Persist status change - don't auto-refresh on failure to prevent loops
-        await persistTaskStatus(activeTaskId, overTask.status);
+        // Persist status change - show merge dialog if moving to done from human_review
+        await updateStatus(activeTaskId, overTask.status, task.title, task.status, task.specId);
       }
+    }
+  };
+
+  // Handle merge and complete - creates a new branch to merge into (safe)
+  const handleMergeAndComplete = async () => {
+    if (!mergeDialog.taskId || !mergeDialog.branchName.trim()) return;
+
+    setMergeDialog(prev => ({ ...prev, isMerging: true, error: null }));
+
+    try {
+      // Call the merge worktree API with createBranch option
+      // This creates a new branch and merges into it, keeping current branch safe
+      const result = await window.electronAPI.mergeWorktree(mergeDialog.taskId, {
+        createBranch: mergeDialog.branchName.trim()
+      });
+
+      if (result.success) {
+        // Update local state to done
+        updateTaskStatus(mergeDialog.taskId, 'done');
+        setMergeDialog({ open: false, taskId: null, taskTitle: '', specId: null, branchName: '', isMerging: false, error: null });
+      } else {
+        setMergeDialog(prev => ({
+          ...prev,
+          isMerging: false,
+          error: result.error || 'Failed to merge worktree changes'
+        }));
+      }
+    } catch (err) {
+      setMergeDialog(prev => ({
+        ...prev,
+        isMerging: false,
+        error: err instanceof Error ? err.message : 'An error occurred while merging'
+      }));
+    }
+  };
+
+  // Handle skip merge (force complete without merging)
+  const handleSkipMerge = async () => {
+    if (!mergeDialog.taskId) return;
+
+    setMergeDialog(prev => ({ ...prev, isMerging: true, error: null }));
+
+    try {
+      // Force complete - this will clean up the worktree without merging
+      const success = await persistTaskStatus(mergeDialog.taskId, 'done', { force: true });
+      if (success) {
+        setMergeDialog({ open: false, taskId: null, taskTitle: '', specId: null, branchName: '', isMerging: false, error: null });
+      } else {
+        setMergeDialog(prev => ({
+          ...prev,
+          isMerging: false,
+          error: 'Failed to complete task'
+        }));
+      }
+    } catch (err) {
+      setMergeDialog(prev => ({
+        ...prev,
+        isMerging: false,
+        error: err instanceof Error ? err.message : 'An error occurred'
+      }));
+    }
+  };
+
+  // Handle create PR from worktree
+  const handleCreatePR = async () => {
+    if (!mergeDialog.taskId || !mergeDialog.specId) return;
+
+    setMergeDialog(prev => ({ ...prev, isMerging: true, error: null }));
+
+    try {
+      // Call the backend to push and create PR
+      const result = await window.electronAPI.createWorktreePR(mergeDialog.taskId, {
+        title: mergeDialog.taskTitle
+      });
+
+      if (result.success && result.data?.success) {
+        // PR created successfully - open it in browser
+        if (result.data.prUrl) {
+          window.electronAPI.openExternal(result.data.prUrl);
+        }
+        // Keep task in human_review since PR needs to be merged on GitHub
+        setMergeDialog({ open: false, taskId: null, taskTitle: '', specId: null, branchName: '', isMerging: false, error: null });
+      } else {
+        setMergeDialog(prev => ({
+          ...prev,
+          isMerging: false,
+          error: result.error || result.data?.message || 'Failed to create pull request'
+        }));
+      }
+    } catch (err) {
+      setMergeDialog(prev => ({
+        ...prev,
+        isMerging: false,
+        error: err instanceof Error ? err.message : 'An error occurred'
+      }));
     }
   };
 
@@ -614,6 +753,112 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick }: KanbanBoardP
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Merge and complete confirmation dialog */}
+      <AlertDialog
+        open={mergeDialog.open}
+        onOpenChange={(open) => !open && !mergeDialog.isMerging && setMergeDialog({ open: false, taskId: null, taskTitle: '', specId: null, branchName: '', isMerging: false, error: null })}
+      >
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <GitMerge className="h-5 w-5 text-primary" />
+              Complete Task
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-left space-y-3">
+                <p>
+                  The task <strong>"{mergeDialog.taskTitle}"</strong> has changes in an isolated workspace.
+                </p>
+
+                {/* Branch name input */}
+                <div className="space-y-2">
+                  <Label htmlFor="branch-name" className="text-sm font-medium">
+                    New branch name (changes will be merged here):
+                  </Label>
+                  <Input
+                    id="branch-name"
+                    value={mergeDialog.branchName}
+                    onChange={(e) => setMergeDialog(prev => ({ ...prev, branchName: e.target.value }))}
+                    placeholder="feature/my-changes"
+                    disabled={mergeDialog.isMerging}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Your current branch will remain untouched. Changes are merged into this new branch.
+                  </p>
+                </div>
+
+                <ul className="space-y-2 text-sm border-t pt-3">
+                  <li className="flex items-start gap-2">
+                    <GitMerge className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+                    <span><strong>Merge to Branch</strong> - Creates new branch and merges changes (safe)</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <GitPullRequest className="h-4 w-4 mt-0.5 text-blue-500 shrink-0" />
+                    <span><strong>Create PR</strong> - Push worktree branch to GitHub and open PR</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Archive className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                    <span><strong>Discard</strong> - Delete worktree without keeping changes</span>
+                  </li>
+                </ul>
+                {mergeDialog.error && (
+                  <div className="rounded-md bg-destructive/10 p-3 text-destructive text-sm whitespace-pre-wrap font-mono text-xs">
+                    {mergeDialog.error}
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel disabled={mergeDialog.isMerging}>Cancel</AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={handleSkipMerge}
+              disabled={mergeDialog.isMerging}
+              className="text-muted-foreground"
+            >
+              Discard
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleCreatePR}
+              disabled={mergeDialog.isMerging}
+              className="text-blue-500 border-blue-500/30 hover:bg-blue-500/10"
+            >
+              {mergeDialog.isMerging ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <GitPullRequest className="h-4 w-4 mr-2" />
+                  Create PR
+                </>
+              )}
+            </Button>
+            <AlertDialogAction
+              onClick={handleMergeAndComplete}
+              disabled={mergeDialog.isMerging || !mergeDialog.branchName.trim()}
+              className="bg-primary"
+            >
+              {mergeDialog.isMerging ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Merging...
+                </>
+              ) : (
+                <>
+                  <GitMerge className="h-4 w-4 mr-2" />
+                  Merge to Branch
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
     </TooltipProvider>
   );

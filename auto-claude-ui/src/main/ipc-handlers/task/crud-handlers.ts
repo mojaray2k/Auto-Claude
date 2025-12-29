@@ -362,12 +362,47 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
       }
 
       // Check if this is a parent task with children
+      // Verify children actually exist (not just in childTaskIds array which may be stale)
       if (task.hasChildren && task.childTaskIds && task.childTaskIds.length > 0) {
-        const childCount = task.childTaskIds.length;
-        return {
-          success: false,
-          error: `Cannot delete parent task with ${childCount} child task${childCount > 1 ? 's' : ''}. Delete child tasks first.`
-        };
+        // Count how many child tasks actually still exist
+        const existingChildren = task.childTaskIds.filter(childId => {
+          const { task: childTask } = findTaskAndProject(childId);
+          return childTask !== null;
+        });
+
+        if (existingChildren.length > 0) {
+          return {
+            success: false,
+            error: `Cannot delete parent task with ${existingChildren.length} child task${existingChildren.length > 1 ? 's' : ''}. Delete child tasks first.`
+          };
+        }
+        // If no children actually exist, continue with deletion (stale childTaskIds)
+        console.warn(`[TASK_DELETE] Parent task ${taskId} has stale childTaskIds (${task.childTaskIds.length} listed, 0 exist). Allowing deletion.`);
+      }
+
+      // If this is a child task, update the parent's childTaskIds
+      if (task.parentTaskId) {
+        const { task: parentTask, project: parentProject } = findTaskAndProject(task.parentTaskId);
+        if (parentTask && parentProject && parentTask.childTaskIds) {
+          // Remove this task from parent's childTaskIds
+          const updatedChildIds = parentTask.childTaskIds.filter(id => id !== task.id);
+
+          // Update parent's metadata file
+          const parentSpecDir = path.join(parentProject.path, getSpecsDir(parentProject.autoBuildPath), parentTask.specId);
+          const parentMetadataPath = path.join(parentSpecDir, 'metadata.json');
+
+          if (existsSync(parentMetadataPath)) {
+            try {
+              const metadata = JSON.parse(readFileSync(parentMetadataPath, 'utf-8'));
+              metadata.childTaskIds = updatedChildIds;
+              metadata.hasChildren = updatedChildIds.length > 0;
+              writeFileSync(parentMetadataPath, JSON.stringify(metadata, null, 2));
+              console.warn(`[TASK_DELETE] Updated parent ${task.parentTaskId} childTaskIds: removed ${task.id}, ${updatedChildIds.length} remaining`);
+            } catch (err) {
+              console.error(`[TASK_DELETE] Failed to update parent metadata:`, err);
+            }
+          }
+        }
       }
 
       // Delete the spec directory

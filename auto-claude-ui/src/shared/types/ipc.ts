@@ -31,6 +31,7 @@ import type {
   WorktreeDiff,
   WorktreeMergeResult,
   WorktreeDiscardResult,
+  WorktreePRResult,
   WorktreeListResult,
   TaskRecoveryResult,
   TaskRecoveryOptions,
@@ -159,7 +160,7 @@ export interface ElectronAPI {
   startTask: (taskId: string, options?: TaskStartOptions) => void;
   stopTask: (taskId: string) => void;
   submitReview: (taskId: string, approved: boolean, feedback?: string) => Promise<IPCResult>;
-  updateTaskStatus: (taskId: string, status: TaskStatus) => Promise<IPCResult>;
+  updateTaskStatus: (taskId: string, status: TaskStatus, options?: { force?: boolean }) => Promise<IPCResult>;
   recoverStuckTask: (taskId: string, options?: TaskRecoveryOptions) => Promise<IPCResult<TaskRecoveryResult>>;
   checkTaskRunning: (taskId: string) => Promise<IPCResult<boolean>>;
 
@@ -170,6 +171,7 @@ export interface ElectronAPI {
   mergeWorktree: (taskId: string, options?: { noCommit?: boolean }) => Promise<IPCResult<WorktreeMergeResult>>;
   mergeWorktreePreview: (taskId: string) => Promise<IPCResult<WorktreeMergeResult>>;
   discardWorktree: (taskId: string) => Promise<IPCResult<WorktreeDiscardResult>>;
+  createWorktreePR: (taskId: string, options?: { title?: string; body?: string; draft?: boolean }) => Promise<IPCResult<WorktreePRResult>>;
   listWorktrees: (projectId: string) => Promise<IPCResult<WorktreeListResult>>;
 
   // Task archive operations

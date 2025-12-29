@@ -435,9 +435,11 @@ export function registerTaskExecutionHandlers(
     async (
       _,
       taskId: string,
-      status: TaskStatus
+      status: TaskStatus,
+      options?: { force?: boolean }
     ): Promise<IPCResult> => {
-      console.log(`[TASK_UPDATE_STATUS] Updating task ${taskId} to status: ${status}`);
+      const force = options?.force ?? false;
+      console.log(`[TASK_UPDATE_STATUS] Updating task ${taskId} to status: ${status}${force ? ' (FORCE)' : ''}`);
 
       // Find task and project first (needed for worktree check)
       const { task, project } = findTaskAndProject(taskId);
@@ -529,12 +531,52 @@ export function registerTaskExecutionHandlers(
         });
 
         if (hasWorktree) {
-          // Worktree exists - must use merge workflow
-          console.warn(`[TASK_UPDATE_STATUS] Blocked attempt to set status 'done' directly for task ${taskId}. Use merge workflow instead.`);
-          return {
-            success: false,
-            error: "Cannot set status to 'done' directly. Complete the human review and merge the worktree changes instead."
-          };
+          if (force) {
+            // Force mode - clean up the worktree and allow marking as done
+            console.warn(`[TASK_UPDATE_STATUS] Force mode: cleaning up worktree for task ${taskId}`);
+            try {
+              const { rm } = await import('fs/promises');
+              await rm(worktreePath, { recursive: true, force: true });
+
+              // Also remove from git worktree list
+              const { execSync } = await import('child_process');
+              try {
+                execSync(`git worktree remove "${worktreePath}" --force`, {
+                  cwd: project.path,
+                  stdio: 'pipe'
+                });
+              } catch {
+                // Ignore git worktree remove errors - directory already deleted
+              }
+
+              // Clean up the git branch if it exists
+              const branchName = `auto-claude/${task.specId}`;
+              try {
+                execSync(`git branch -D "${branchName}"`, {
+                  cwd: project.path,
+                  stdio: 'pipe'
+                });
+                console.log(`[TASK_UPDATE_STATUS] Deleted branch: ${branchName}`);
+              } catch {
+                // Branch may not exist or already deleted
+              }
+
+              console.log(`[TASK_UPDATE_STATUS] Force cleaned worktree: ${worktreePath}`);
+            } catch (err) {
+              console.error(`[TASK_UPDATE_STATUS] Failed to clean up worktree:`, err);
+              return {
+                success: false,
+                error: `Failed to clean up worktree: ${err instanceof Error ? err.message : 'Unknown error'}`
+              };
+            }
+          } else {
+            // Worktree exists - must use merge workflow
+            console.warn(`[TASK_UPDATE_STATUS] Blocked attempt to set status 'done' directly for task ${taskId}. Use merge workflow instead.`);
+            return {
+              success: false,
+              error: "Cannot set status to 'done' directly. Complete the human review and merge the worktree changes instead."
+            };
+          }
         } else {
           // No worktree - allow marking as done (limbo state recovery)
           console.log(`[TASK_UPDATE_STATUS] Allowing status 'done' for task ${taskId} (no worktree found - limbo state)`);

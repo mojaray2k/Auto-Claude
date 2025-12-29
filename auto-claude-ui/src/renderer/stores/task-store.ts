@@ -350,10 +350,14 @@ export async function submitReview(
 
 /**
  * Update task status and persist to file
+ * @param taskId - The task ID to update
+ * @param status - The new status
+ * @param options - Optional settings like { force: true } to force-complete with worktree cleanup
  */
 export async function persistTaskStatus(
   taskId: string,
-  status: TaskStatus
+  status: TaskStatus,
+  options?: { force?: boolean }
 ): Promise<boolean> {
   const store = useTaskStore.getState();
 
@@ -422,7 +426,7 @@ export async function persistTaskStatus(
     store.updateTaskStatus(taskId, status);
 
     // Persist to file
-    const result = await window.electronAPI.updateTaskStatus(taskId, status);
+    const result = await window.electronAPI.updateTaskStatus(taskId, status, options);
     if (!result.success) {
       console.error('Failed to persist task status:', result.error);
       // Rollback local state to original status

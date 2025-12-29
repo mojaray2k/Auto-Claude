@@ -406,6 +406,14 @@ export interface WorktreeDiscardResult {
   message: string;
 }
 
+export interface WorktreePRResult {
+  success: boolean;
+  message: string;
+  prUrl?: string;
+  prNumber?: number;
+  branch?: string;
+}
+
 /**
  * Information about a single spec worktree
  * Per-spec architecture: Each spec has its own worktree at .worktrees/{spec-name}/

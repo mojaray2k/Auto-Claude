@@ -1208,6 +1208,60 @@ export function registerWorktreeHandlers(
 
           console.log('[WORKTREE_CREATE_PR] PR created:', prUrl);
 
+          // Update task status to 'done' since PR was created
+          const specDir = path.join(project.path, project.autoBuildPath || '.auto-claude', 'specs', task.specId);
+          const planPath = path.join(specDir, 'implementation_plan.json');
+          try {
+            if (existsSync(planPath)) {
+              const planContent = readFileSync(planPath, 'utf-8');
+              const plan = JSON.parse(planContent);
+              plan.status = 'done';
+              plan.planStatus = 'completed';
+              plan.updated_at = new Date().toISOString();
+              plan.prUrl = prUrl;
+              plan.prNumber = prNumber;
+              const { writeFileSync } = require('fs');
+              writeFileSync(planPath, JSON.stringify(plan, null, 2));
+            }
+          } catch (persistError) {
+            console.error('[WORKTREE_CREATE_PR] Failed to persist task status:', persistError);
+          }
+
+          // Send status change event to frontend
+          const mainWindow = getMainWindow();
+          if (mainWindow) {
+            mainWindow.webContents.send(IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'done');
+          }
+
+          // Clean up worktree after PR created (branch is now on remote)
+          if (existsSync(worktreePath)) {
+            console.log('[WORKTREE_CREATE_PR] Cleaning up worktree:', worktreePath);
+            try {
+              // Remove the worktree
+              execSync(`git worktree remove --force "${worktreePath}"`, {
+                cwd: project.path,
+                encoding: 'utf-8'
+              });
+              console.log('[WORKTREE_CREATE_PR] Worktree removed');
+
+              // Delete the local branch (it's been pushed to remote)
+              if (branch && branch.startsWith('auto-claude/')) {
+                try {
+                  execSync(`git branch -D "${branch}"`, {
+                    cwd: project.path,
+                    encoding: 'utf-8'
+                  });
+                  console.log('[WORKTREE_CREATE_PR] Branch deleted:', branch);
+                } catch {
+                  // Branch might already be deleted
+                }
+              }
+            } catch (cleanupError) {
+              // Log but don't fail - the PR was created successfully
+              console.error('[WORKTREE_CREATE_PR] Failed to clean up worktree:', cleanupError);
+            }
+          }
+
           return {
             success: true,
             data: {
@@ -1230,6 +1284,47 @@ export function registerWorktreeHandlers(
                 encoding: 'utf-8',
                 stdio: ['pipe', 'pipe', 'pipe']
               }).trim();
+
+              // PR exists - also mark task as done and clean up
+              const specDir = path.join(project.path, project.autoBuildPath || '.auto-claude', 'specs', task.specId);
+              const planPath = path.join(specDir, 'implementation_plan.json');
+              try {
+                if (existsSync(planPath)) {
+                  const planContent = readFileSync(planPath, 'utf-8');
+                  const plan = JSON.parse(planContent);
+                  plan.status = 'done';
+                  plan.planStatus = 'completed';
+                  plan.updated_at = new Date().toISOString();
+                  plan.prUrl = existingPr;
+                  const { writeFileSync } = require('fs');
+                  writeFileSync(planPath, JSON.stringify(plan, null, 2));
+                }
+              } catch (persistError) {
+                console.error('[WORKTREE_CREATE_PR] Failed to persist task status:', persistError);
+              }
+
+              // Send status change event
+              const mainWindow = getMainWindow();
+              if (mainWindow) {
+                mainWindow.webContents.send(IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'done');
+              }
+
+              // Clean up worktree
+              if (existsSync(worktreePath)) {
+                try {
+                  execSync(`git worktree remove --force "${worktreePath}"`, {
+                    cwd: project.path,
+                    encoding: 'utf-8'
+                  });
+                  if (branch && branch.startsWith('auto-claude/')) {
+                    try {
+                      execSync(`git branch -D "${branch}"`, { cwd: project.path, encoding: 'utf-8' });
+                    } catch { /* ignore */ }
+                  }
+                } catch (cleanupError) {
+                  console.error('[WORKTREE_CREATE_PR] Failed to clean up worktree:', cleanupError);
+                }
+              }
 
               return {
                 success: true,

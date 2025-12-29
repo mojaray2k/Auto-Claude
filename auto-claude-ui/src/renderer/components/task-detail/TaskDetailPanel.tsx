@@ -469,7 +469,7 @@ export function TaskDetailPanel({ task, onClose, onSelectTask }: TaskDetailPanel
         <MergeTargetDialog
           open={showMergeTargetDialog}
           projectPath={selectedProject?.path || ''}
-          currentBranch={state.worktreeStatus?.baseBranch || 'main'}
+          currentBranch={state.worktreeStatus?.baseBranch || selectedProject?.settings?.mainBranch || 'main'}
           isMerging={state.isMerging}
           onOpenChange={setShowMergeTargetDialog}
           onMerge={handleMerge}

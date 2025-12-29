@@ -3,22 +3,21 @@
 
 FROM node:20-alpine
 
-# Install additional dependencies
+# Install additional dependencies (runtime only, no dev packages)
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     git \
     dbus \
-    libxkbcommon \
-    libxkbcommon-dev
+    libxkbcommon
 
 WORKDIR /app
 
 # Copy package files
 COPY auto-claude-ui/package.json auto-claude-ui/pnpm-lock.yaml ./
 
-# Install dependencies
-RUN npm install -g pnpm && \
+# Install dependencies (pin pnpm version for reproducible builds)
+RUN npm install -g pnpm@9.15.0 && \
     pnpm install --frozen-lockfile
 
 # Copy application code

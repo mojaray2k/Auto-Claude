@@ -43,7 +43,10 @@ echo "Starting main service (TypeScript/React/Electron)..."
 echo ""
 
 # Main service (development mode)
-cd /Users/amenra/Auto-Claude/auto-claude-ui
+# Get the project root relative to this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/../../.." && pwd )"
+cd "$PROJECT_ROOT"
 npm run dev &
 wait_for_service 3000 "Main Application"
 

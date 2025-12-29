@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
-import { readdirSync, readFileSync } from 'fs';
+import { readdirSync } from 'fs';
+import { readFile } from 'fs/promises';
 import path from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult, FileNode } from '../../shared/types';
@@ -24,7 +25,7 @@ export function registerFileHandlers(): void {
     IPC_CHANNELS.FILE_READ_CONTENT,
     async (_, filePath: string): Promise<IPCResult<string>> => {
       try {
-        const content = readFileSync(filePath, 'utf-8');
+        const content = await readFile(filePath, 'utf-8');
         return { success: true, data: content };
       } catch (error) {
         return {

@@ -12,13 +12,20 @@ const path = require('path');
 const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 
+// Get platform-specific user data directory
+function getUserDataDir() {
+  switch (process.platform) {
+    case 'darwin':
+      return path.join(os.homedir(), 'Library', 'Application Support', 'auto-claude-ui');
+    case 'win32':
+      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'auto-claude-ui');
+    default:
+      return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'auto-claude-ui');
+  }
+}
+
 // Find the projects.json file
-const userDataDir = path.join(
-  os.homedir(),
-  'Library',
-  'Application Support',
-  'auto-claude-ui'
-);
+const userDataDir = getUserDataDir();
 const storeDir = path.join(userDataDir, 'store');
 const projectsFile = path.join(storeDir, 'projects.json');
 
@@ -45,7 +52,7 @@ if (fs.existsSync(projectsFile)) {
 }
 
 // Auto Claude UI project details
-const projectPath = '/Users/amenra/Auto-Claude/auto-claude-ui';
+const projectPath = path.resolve(__dirname, '..');
 const autoBuildPath = '.auto-claude';
 
 // Check if project already exists

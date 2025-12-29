@@ -193,8 +193,9 @@ export class UpdateEngine {
   private async getChangedFiles(git: SimpleGit): Promise<UpdateFile[]> {
     try {
       // Get diff between HEAD and origin/main (or origin/master)
+      // Order: HEAD..origin/branch shows what remote has that local doesn't (available updates)
       const branch = await this.getDefaultBranch(git);
-      const diffSummary = await git.diffSummary([`origin/${branch}`, 'HEAD']);
+      const diffSummary = await git.diffSummary(['HEAD', `origin/${branch}`]);
 
       const files: UpdateFile[] = [];
 

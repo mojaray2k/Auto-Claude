@@ -36,37 +36,43 @@ log "${GREEN}✓ Docker is running${NC}"
 
 # Step 2: Start Memory Layer (FalkorDB) in background
 log "${YELLOW}Starting Memory Layer (FalkorDB)...${NC}"
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || { log "${RED}❌ Failed to change to project directory${NC}"; exit 1; }
 
 if ! docker-compose ps falkordb 2>/dev/null | grep -q "running"; then
   docker-compose up -d falkordb >> "$LOG_FILE" 2>&1
   log "  Waiting for FalkorDB to be healthy..."
-  sleep 5
+  # Wait for container health with timeout (30 seconds max)
+  for i in {1..30}; do
+    if docker-compose ps falkordb 2>/dev/null | grep -q "healthy\|running"; then
+      break
+    fi
+    sleep 1
+  done
 fi
 log "${GREEN}✓ Memory Layer ready${NC}"
 
 # Step 3: Set up Python backend (if needed)
 if [ ! -d "auto-claude/.venv" ]; then
   log "${YELLOW}Setting up Python backend...${NC}"
-  cd auto-claude
+  cd auto-claude || { log "${RED}❌ Failed to change to auto-claude directory${NC}"; exit 1; }
   python3 -m venv .venv >> "$LOG_FILE" 2>&1
   source .venv/bin/activate
   pip install -q -r requirements.txt >> "$LOG_FILE" 2>&1
-  cd ..
+  cd .. || { log "${RED}❌ Failed to return to project directory${NC}"; exit 1; }
   log "${GREEN}✓ Python backend ready${NC}"
 fi
 
 # Step 4: Install UI dependencies (if needed)
 if [ ! -d "auto-claude-ui/node_modules" ]; then
   log "${YELLOW}Installing UI dependencies (this may take a minute)...${NC}"
-  cd "$PROJECT_DIR/auto-claude-ui"
+  cd "$PROJECT_DIR/auto-claude-ui" || { log "${RED}❌ Failed to change to auto-claude-ui directory${NC}"; exit 1; }
   npm install -q >> "$LOG_FILE" 2>&1
   log "${GREEN}✓ UI dependencies installed${NC}"
 fi
 
 # Step 5: Build the UI
 log "${YELLOW}Building UI...${NC}"
-cd "$PROJECT_DIR/auto-claude-ui"
+cd "$PROJECT_DIR/auto-claude-ui" || { log "${RED}❌ Failed to change to auto-claude-ui directory${NC}"; exit 1; }
 npm run build >> "$LOG_FILE" 2>&1
 log "${GREEN}✓ UI built successfully${NC}"
 

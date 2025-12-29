@@ -136,14 +136,19 @@ export function ProjectSwitcher({
     onOpenChange(false);
   };
 
-  // Get shortened path for display
+  // Get shortened path for display (cross-platform)
   const getShortPath = (fullPath: string) => {
-    const home = '/Users/';
-    if (fullPath.startsWith(home)) {
-      const afterHome = fullPath.slice(home.length);
-      const firstSlash = afterHome.indexOf('/');
-      if (firstSlash > 0) {
-        return '~' + afterHome.slice(firstSlash);
+    // Handle different OS home directory patterns
+    const homePatterns = [
+      /^\/Users\/[^/]+/,        // macOS: /Users/username
+      /^\/home\/[^/]+/,         // Linux: /home/username
+      /^[A-Z]:\\Users\\[^\\]+/i // Windows: C:\Users\username
+    ];
+
+    for (const pattern of homePatterns) {
+      const match = fullPath.match(pattern);
+      if (match) {
+        return '~' + fullPath.slice(match[0].length).replace(/\\/g, '/');
       }
     }
     return fullPath;

@@ -328,18 +328,24 @@ export function registerWorktreeHandlers(
 
               // Create and checkout new branch
               debug('Creating new branch:', options.createBranch);
-              execSync(`git checkout -b "${options.createBranch}"`, {
+              const createResult = spawnSync('git', ['checkout', '-b', options.createBranch], {
                 cwd: project.path,
                 encoding: 'utf-8'
               });
+              if (createResult.status !== 0) {
+                throw new Error(createResult.stderr || 'Failed to create branch');
+              }
               debug('Created and checked out new branch:', options.createBranch);
             } else if (options.targetBranch && options.targetBranch !== originalBranch) {
               // Switch to target branch
               debug('Switching to target branch:', options.targetBranch);
-              execSync(`git checkout "${options.targetBranch}"`, {
+              const checkoutResult = spawnSync('git', ['checkout', options.targetBranch], {
                 cwd: project.path,
                 encoding: 'utf-8'
               });
+              if (checkoutResult.status !== 0) {
+                throw new Error(checkoutResult.stderr || 'Failed to checkout branch');
+              }
               debug('Switched to target branch:', options.targetBranch);
             }
           } catch (branchError) {

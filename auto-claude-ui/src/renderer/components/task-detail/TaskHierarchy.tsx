@@ -101,9 +101,9 @@ export function TaskHierarchy({ task, allTasks, onTaskClick }: TaskHierarchyProp
                 >
                   <div className="flex items-center gap-2 w-full min-w-0">
                     <div className="flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-medium" style={{
-                      borderColor: completed ? 'rgb(var(--success))' : inProgress ? 'rgb(var(--info))' : 'rgb(var(--border))',
-                      backgroundColor: completed ? 'rgb(var(--success) / 0.1)' : inProgress ? 'rgb(var(--info) / 0.1)' : 'transparent',
-                      color: completed ? 'rgb(var(--success))' : inProgress ? 'rgb(var(--info))' : 'rgb(var(--muted-foreground))'
+                      borderColor: completed ? 'var(--success)' : inProgress ? 'var(--info)' : 'var(--border)',
+                      backgroundColor: completed ? 'color-mix(in srgb, var(--success) 10%, transparent)' : inProgress ? 'color-mix(in srgb, var(--info) 10%, transparent)' : 'transparent',
+                      color: completed ? 'var(--success)' : inProgress ? 'var(--info)' : 'var(--muted-foreground)'
                     }}>
                       {index + 1}
                     </div>

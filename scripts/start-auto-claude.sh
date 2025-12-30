@@ -21,62 +21,36 @@ log() {
 
 log "🚀 Auto Claude Launcher started"
 
-# Step 1: Check Docker is running
-log "${YELLOW}Checking Docker...${NC}"
-if ! command -v docker &> /dev/null; then
-  log "${RED}❌ Docker not found. Please install Docker Desktop.${NC}"
-  exit 1
-fi
-
-if ! docker info > /dev/null 2>&1; then
-  log "${RED}❌ Docker is not running. Please start Docker Desktop.${NC}"
-  exit 1
-fi
-log "${GREEN}✓ Docker is running${NC}"
-
-# Step 2: Start Memory Layer (FalkorDB) in background
-log "${YELLOW}Starting Memory Layer (FalkorDB)...${NC}"
-cd "$PROJECT_DIR" || { log "${RED}❌ Failed to change to project directory${NC}"; exit 1; }
-
-if ! docker-compose ps falkordb 2>/dev/null | grep -q "running"; then
-  docker-compose up -d falkordb >> "$LOG_FILE" 2>&1
-  log "  Waiting for FalkorDB to be healthy..."
-  # Wait for container health with timeout (30 seconds max)
-  for i in {1..30}; do
-    if docker-compose ps falkordb 2>/dev/null | grep -q "healthy\|running"; then
-      break
-    fi
-    sleep 1
-  done
-fi
-log "${GREEN}✓ Memory Layer ready${NC}"
-
-# Step 3: Set up Python backend (if needed)
-if [ ! -d "auto-claude/.venv" ]; then
+# Step 1: Set up Python backend (if needed)
+if [ ! -d "$PROJECT_DIR/auto-claude/.venv" ]; then
   log "${YELLOW}Setting up Python backend...${NC}"
-  cd auto-claude || { log "${RED}❌ Failed to change to auto-claude directory${NC}"; exit 1; }
+  cd "$PROJECT_DIR/auto-claude" || { log "${RED}❌ Failed to change to auto-claude directory${NC}"; exit 1; }
   python3 -m venv .venv >> "$LOG_FILE" 2>&1
   source .venv/bin/activate
   pip install -q -r requirements.txt >> "$LOG_FILE" 2>&1
-  cd .. || { log "${RED}❌ Failed to return to project directory${NC}"; exit 1; }
+  cd "$PROJECT_DIR" || { log "${RED}❌ Failed to return to project directory${NC}"; exit 1; }
   log "${GREEN}✓ Python backend ready${NC}"
+else
+  log "${GREEN}✓ Python backend already set up${NC}"
 fi
 
-# Step 4: Install UI dependencies (if needed)
-if [ ! -d "auto-claude-ui/node_modules" ]; then
+# Step 2: Install UI dependencies (if needed)
+if [ ! -d "$PROJECT_DIR/auto-claude-ui/node_modules" ]; then
   log "${YELLOW}Installing UI dependencies (this may take a minute)...${NC}"
   cd "$PROJECT_DIR/auto-claude-ui" || { log "${RED}❌ Failed to change to auto-claude-ui directory${NC}"; exit 1; }
   npm install -q >> "$LOG_FILE" 2>&1
   log "${GREEN}✓ UI dependencies installed${NC}"
+else
+  log "${GREEN}✓ UI dependencies already installed${NC}"
 fi
 
-# Step 5: Build the UI
+# Step 3: Build the UI
 log "${YELLOW}Building UI...${NC}"
 cd "$PROJECT_DIR/auto-claude-ui" || { log "${RED}❌ Failed to change to auto-claude-ui directory${NC}"; exit 1; }
 npm run build >> "$LOG_FILE" 2>&1
 log "${GREEN}✓ UI built successfully${NC}"
 
-# Step 6: Launch the application in background
+# Step 4: Launch the application in background
 log "${YELLOW}Launching Auto Claude...${NC}"
 
 # Start in background, detached from terminal
@@ -92,4 +66,3 @@ log "🖥️  Look for the Auto Claude window to appear"
 log "📝 Logs saved to: $LOG_FILE"
 log ""
 log "✓ You can now close this terminal window"
-
